@@ -55,6 +55,7 @@ pub mod flags {
     pub const NO_HAIRPINNING: u32 = 1 << 5;
     /// If true, the NAT will attempt to hairpin intranet to intranet packets, but it will rewrite
     /// the src_address and src_port to be the internal intranet address and port of the sender.
+    /// 
     /// This flag has no effect if `NO_HAIRPINNING` is true.
     pub const INTERNAL_ADDRESS_AND_PORT_HAIRPINNING: u32 = 1 << 6;
 
@@ -77,6 +78,7 @@ pub mod flags {
     pub const NO_PORT_PARITY: u32 = 1 << 11;
     /// If true, the NAT will force source port preservation by overwritting older mappings that are
     /// using the same combination of external address and source port as the newer mapping.
+    ///
     /// This flag has no effect if `NO_PORT_PRESERVATION` is true.
     pub const PORT_PRESERVATION_OVERRIDE: u32 = 1 << 12;
     /// If true, the NAT will force source port preservation by allowing multiple intranet addresses
@@ -84,6 +86,7 @@ pub mod flags {
     /// When an inbound packet is addressed to an overloaded port it is nondeterministic which
     /// intranet address will be sent this packet. If address or port filtering are on the NAT will
     /// send the packet to some intranet address that match the filtering.
+    ///
     /// This flag has no effect if `NO_PORT_PRESERVATION` is true.
     pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 13;
 }
