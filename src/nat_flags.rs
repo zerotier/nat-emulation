@@ -88,7 +88,7 @@ pub mod flags {
     pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 13;
 }
 /// This is a set of pre-defined flags for common NAT types. Each constant represents some
-/// common NAT or firewall types one might want to emulate with this library. These provided for
+/// common NAT or firewall types one might want to emulate with this library. These are provided for
 /// convenience and are equivalent to manually bitwise-or'ing the relevant NAT flags together.
 pub mod predefines {
     use super::flags::*;
