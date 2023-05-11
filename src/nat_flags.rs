@@ -19,8 +19,8 @@
 /// one which breaks nearly every requirement specified by rfc4787.
 ///
 /// We also have a set of pre-defined flag combinations for common NAT types in the `predefines`
-/// module. This module only needs to be used if you have extremely specific and uncommon NAT
-/// behaviors you want to see.
+/// module. The `flags` module only needs to be used if you have extremely specific and uncommon NAT
+/// behavior combinations you want to see.
 pub mod flags {
     /// If true, the NAT has an "IP address pooling" behavior of "Arbitrary".
     ///
@@ -112,7 +112,7 @@ pub mod predefines {
     /// Equivalent to: `PORT_RESTRICTED_FIREWALL | PORT_PRESERVATION_OVERLOAD`
     pub const MISBEHAVING_FIREWALL: u32 = PORT_RESTRICTED_FIREWALL | PORT_PRESERVATION_OVERLOAD;
 
-    /// Equivalent to: `0`
+    /// Equivalent to: `0u32`
     pub const EASY_NAT: u32 = 0;
 
     /// Equivalent to: `NO_PORT_PRESERVATION`
