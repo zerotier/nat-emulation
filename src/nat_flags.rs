@@ -1,29 +1,31 @@
-/// All of the flags below conform with NAT behaviors observed by rfc4787,
+/// All of the flags within this module conform with NAT behaviors observed by rfc4787,
 /// https://datatracker.ietf.org/doc/html/rfc4787.
 ///
 /// By bitwise or'ing them together one can specify any combination of NAT behaviors.
 /// These flags directly model NAT behaviors, however certain combinations can accurately emulate
 /// common stateful firewall behaviors as well. One only needs to make sure the NAT is assigned a
-/// single intranet address that matches its external address.
+/// single intranet address that matches its external address to emulate a firewall.
 ///
 /// A NAT with a flag set to true is at least as "hard" to punch through as a NAT with the same flag
-/// set to false. In other words, the more flags set to true the more misbehaved and difficult to
-/// punch through the NAT becomes.
+/// set to false. In other words, the more flags that are set to true for a NAT, the more misbehaved
+/// and difficult to punch through the NAT becomes.
 ///
-/// A `0u32` for the set of flags indicates a simple NAT that will just perform address translation
+/// `0u32` as the set of flags specifies a simple NAT that will just perform address translation
 /// for outgoing and incoming packets. It will avoid translating port numbers unless there is a port
 /// number collision on outgoing packets, at which point it will choose the port number for one of
 /// them randomly.
 ///
-/// A `0xffffffffu32` for the set of flags indicates the worst kind of symmetric enterprise NAT that
-/// breaks nearly every requirement specified by rfc4787.
+/// `0xffffffffu32` as the set of flags specifies the worst kind of symmetric enterprise NAT,
+/// one which breaks nearly every requirement specified by rfc4787.
 ///
 /// We also have a set of pre-defined flag combinations for common NAT types in the `predefines`
 /// module. This module only needs to be used if you have extremely specific and uncommon NAT
 /// behaviors you want to see.
 pub mod flags {
     /// If true, the NAT has an "IP address pooling" behavior of "Arbitrary".
+    ///
     /// By default the NAT has an "IP address pooling" behavior of "Paired".
+    ///
     /// In "Paired" mode the NAT will always assign the same internal intranet address to the same
     /// external internet address.
     /// In "Arbitrary" mode the NAT will randomly assign an external internet address to every new
@@ -50,20 +52,24 @@ pub mod flags {
 
     /// If true, the NAT will not attempt to hairpin intranet to intranet packets and instead drop
     /// them.
+    ///
     /// By default the NAT will always hairpin intranet to intranet packets, rewriting the
     /// src_address and src_port to be the external internet address and port of the sender.
     pub const NO_HAIRPINNING: u32 = 1 << 5;
     /// If true, the NAT will attempt to hairpin intranet to intranet packets, but it will rewrite
     /// the src_address and src_port to be the internal intranet address and port of the sender.
-    /// 
+    ///
     /// This flag has no effect if `NO_HAIRPINNING` is true.
     pub const INTERNAL_ADDRESS_AND_PORT_HAIRPINNING: u32 = 1 << 6;
 
     /// If true, the NAT will not refresh the timeout on a mapping that just received an inbound
-    /// packet.
+    /// packet. The intranet client behind the NAT will have to send "keep-alive" packets.
     pub const INBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 8;
     /// If true, the NAT will not refresh the timeout on a mapping that just sent an outbound
-    /// packet.
+    /// packet. The internet peer in front of the NAT will have to send "keep-alive" packets.
+    ///
+    /// If `INBOUND_REFRESH_BEHAVIOR_FALSE` is also true it is not possible for two peers to
+    /// permanently keep a mapping open through this NAT.
     pub const OUTBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 7;
     /// If true, if an inbound packet is filtered by the NAT, the NAT will also destroy any mappings
     /// connected to the dest_address and dest_port specified by the inbound packet.
@@ -71,21 +77,22 @@ pub mod flags {
 
     /// If true, the NAT will make no attempt to preserve the source port number of a outbound
     /// packet.
-    /// For all outbound connections, intranet ports will be mapped to a random external port.
+    /// For all outbound connections, internal ports will be mapped to a random external port.
     pub const NO_PORT_PRESERVATION: u32 = 1 << 10;
     /// If true, the NAT will make no attempt to preserve parity of the source port number of an
     /// outbound packet. Preserving port parity can help some protocols, as described in rfc4787.
     pub const NO_PORT_PARITY: u32 = 1 << 11;
-    /// If true, the NAT will force source port preservation by overwritting older mappings that are
-    /// using the same combination of external address and source port as the newer mapping.
+    /// If true, the NAT will guarantee source port preservation by overwritting older mappings that
+    /// are using the same combination of external address and source port as the newer mapping.
     ///
     /// This flag has no effect if `NO_PORT_PRESERVATION` is true.
     pub const PORT_PRESERVATION_OVERRIDE: u32 = 1 << 12;
     /// If true, the NAT will force source port preservation by allowing multiple intranet addresses
     /// to share a single port number.
-    /// When an inbound packet is addressed to an overloaded port it is nondeterministic which
-    /// intranet address will be sent this packet. If address or port filtering are on the NAT will
-    /// send the packet to some intranet address that match the filtering.
+    ///
+    /// When an inbound packet is addressed to an overloaded port which intranet address will be
+    /// sent this packet is decided nondeterministically. If address or port filtering are enabled
+    /// the NAT will send the packet to some intranet address that matches the filtering.
     ///
     /// This flag has no effect if `NO_PORT_PRESERVATION` is true.
     pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 13;
