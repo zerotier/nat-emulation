@@ -1,5 +1,3 @@
-
-
 /// All of the flags below conform with NAT behaviors observed by rfc4787,
 /// https://datatracker.ietf.org/doc/html/rfc4787.
 ///

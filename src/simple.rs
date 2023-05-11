@@ -1,8 +1,7 @@
 use std::{collections::HashMap, ops::Range};
 
-use crate::rng::xorshift64star;
 use crate::flags::*;
-
+use crate::rng::xorshift64star;
 
 pub enum DestType {
     Internet {
@@ -55,7 +54,7 @@ pub struct NAT<const FLAGS: u32> {
     valid_internet_ports: Range<u16>,
     valid_intranet_addresses: Range<u32>,
 }
-impl<const FLAGS: u32> NAT<FLAGS>  {
+impl<const FLAGS: u32> NAT<FLAGS> {
     pub fn new(
         assigned_internet_addresses: &[u32],
         assigned_intranet_addresses: Range<u32>,
