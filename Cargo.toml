@@ -1,0 +1,11 @@
+[package]
+name = "nat"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nat"
+path = "src/lib.rs"
+doc = true
+
+[dependencies]
