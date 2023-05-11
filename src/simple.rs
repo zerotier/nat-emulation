@@ -2,32 +2,31 @@ use std::ops::Range;
 
 use crate::rng::xorshift64star;
 
-
 pub const IP_POOLING_MAXIMUM: usize = 64;
-pub const IP_POOLING_BEHAVIOR_ARBITRARY: u32 = 1 << 3;
 
-pub const ADDRESS_DEPENDENT_MAPPING: u32 = 1 << 4;
-pub const PORT_DEPENDENT_MAPPING: u32 = 1 << 5;
+pub const IP_POOLING_BEHAVIOR_ARBITRARY: u32 = 1 << 0;
+
+pub const ADDRESS_DEPENDENT_MAPPING: u32 = 1 << 1;
+pub const PORT_DEPENDENT_MAPPING: u32 = 1 << 2;
 pub const ADDRESS_AND_PORT_DEPENDENT_MAPPING: u32 =
     ADDRESS_DEPENDENT_MAPPING | PORT_DEPENDENT_MAPPING;
 
-pub const ADDRESS_DEPENDENT_FILTERING: u32 = 1 << 6;
-pub const PORT_DEPENDENT_FILTERING: u32 = 1 << 7;
+pub const ADDRESS_DEPENDENT_FILTERING: u32 = 1 << 3;
+pub const PORT_DEPENDENT_FILTERING: u32 = 1 << 4;
 pub const ADDRESS_AND_PORT_DEPENDENT_FILTERING: u32 =
     ADDRESS_DEPENDENT_FILTERING | PORT_DEPENDENT_FILTERING;
 
-pub const INTERNAL_ADDRESS_AND_PORT_HAIRPINNING: u32 = 1 << 8;
-pub const NO_HAIRPINNING: u32 = 1 << 9;
+pub const INTERNAL_ADDRESS_AND_PORT_HAIRPINNING: u32 = 1 << 5;
+pub const NO_HAIRPINNING: u32 = 1 << 6;
 
-pub const OUTBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 10;
-pub const INBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 11;
-pub const FILTERED_INBOUND_DESTROYS_MAPPING: u32 = 1 << 12;
+pub const OUTBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 7;
+pub const INBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 8;
+pub const FILTERED_INBOUND_DESTROYS_MAPPING: u32 = 1 << 9;
 
-pub const NO_PORT_PRESERVATION: u32 = 1 << 1;
-pub const NO_PORT_PARITY: u32 = 1 << 2;
-pub const PORT_PRESERVATION_OVERRIDE: u32 = 1 << 0;
-pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 0;
-//const NON_DETERMINISTIC_PORT_PRESERVATION: u32 = 1<<0;
+pub const NO_PORT_PRESERVATION: u32 = 1 << 10;
+pub const NO_PORT_PARITY: u32 = 1 << 11;
+pub const PORT_PRESERVATION_OVERRIDE: u32 = 1 << 12;
+pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 13;
 
 pub enum DestType {
     Internet {
@@ -42,7 +41,7 @@ pub enum DestType {
         dest_address: u32,
         dest_port: u16,
     },
-    Drop
+    Drop,
 }
 impl DestType {
     pub fn unwrap(&self) -> Option<(u32, u16, u32, u16)> {
@@ -59,12 +58,12 @@ impl DestType {
                 dest_address,
                 dest_port,
             } => Some((*src_address, *src_port, *dest_address, *dest_port)),
-            DestType::Drop => None
+            DestType::Drop => None,
         }
     }
 }
 
-struct SymmetricEntry {
+struct Entry {
     intranet_address: u32,
     intranet_port: u16,
     internet_port: u16,
@@ -76,10 +75,10 @@ struct SymmetricEntry {
     endpoint_port: u16,
     last_used_time: i64,
 }
-pub struct SymmetricNAT {
+pub struct NAT {
     addresses_len: usize,
-    addresses: [u32; IP_POOLING_MAXIMUM],
-    map: [Vec<SymmetricEntry>; IP_POOLING_MAXIMUM],
+    assigned_addresses: [u32; IP_POOLING_MAXIMUM],
+    map: [Vec<Entry>; IP_POOLING_MAXIMUM],
     mapping_timeout: i64,
     max_routing_table_len: usize,
     rng: u64,
@@ -87,13 +86,33 @@ pub struct SymmetricNAT {
     valid_intranet_addresses: Range<u32>,
     flags: u32,
 }
-impl SymmetricNAT {
-    fn address_is_internal(&self, address: u32) -> bool {
-        return self.valid_intranet_addresses.contains(&address);
+impl NAT {
+    pub fn new(
+        assigned_addresses: &[u32],
+        assigned_intranet_addresses: Range<u32>,
+        assigned_internet_ports: Range<u16>,
+        rng_seed: u64,
+        mapping_timeout: i64,
+        flags: u32,
+    ) -> Self {
+        let mut addresses = [0u32; IP_POOLING_MAXIMUM];
+        addresses[..assigned_addresses.len()].copy_from_slice(assigned_addresses);
+        Self {
+            addresses_len: assigned_addresses.len(),
+            assigned_addresses: addresses,
+            map: std::array::from_fn(|_| Vec::new()),
+            mapping_timeout,
+            // We need to make sure if port_parity is on the NAT does not crash from not being able
+            // to generate a unique port.
+            max_routing_table_len: assigned_internet_ports.len() * 2 / 5,
+            rng: rng_seed,
+            valid_internet_ports: assigned_internet_ports,
+            valid_intranet_addresses: assigned_intranet_addresses,
+            flags,
+        }
     }
-    fn generate_port(&mut self) -> u16 {
-        let random_port = xorshift64star(&mut self.rng) as usize % self.valid_internet_ports.len();
-        random_port as u16 + self.valid_internet_ports.start
+    pub fn assigned_addresses(&self) -> &[u32] {
+        &self.assigned_addresses[..self.addresses_len]
     }
     fn remap(
         &mut self,
@@ -105,7 +124,14 @@ impl SymmetricNAT {
         dest_port: u16,
         current_time: i64,
     ) -> DestType {
-        if let Some((_, _, dest_address, dest_port)) = self.from_internet(internet_address, internet_port, dest_address, dest_port, false, current_time) {
+        if let Some((_, _, dest_address, dest_port)) = self.from_internet(
+            internet_address,
+            internet_port,
+            dest_address,
+            dest_port,
+            false,
+            current_time,
+        ) {
             // Packet is for an internal recipient. We assume we are doing hairpinning to rewrite the packet for our intranet.
             if self.flags & INTERNAL_ADDRESS_AND_PORT_HAIRPINNING > 0 {
                 DestType::Intranet {
@@ -122,7 +148,7 @@ impl SymmetricNAT {
                     dest_port,
                 }
             }
-        } else if self.addresses.contains(&dest_address) {
+        } else if self.assigned_addresses.contains(&dest_address) {
             // Packet was addressed to our intranet using their external address and was filtered.
             DestType::Drop
         } else {
@@ -142,14 +168,15 @@ impl SymmetricNAT {
         dest_port: u16,
         current_time: i64,
     ) -> DestType {
-        if self.address_is_internal(dest_address) {
+        if self.valid_intranet_addresses.contains(&dest_address) {
             return DestType::Intranet {
                 src_address,
                 src_port,
                 dest_address,
                 dest_port,
             };
-        } else if self.flags & NO_HAIRPINNING > 0 && self.addresses.contains(&dest_address) {
+        } else if self.flags & NO_HAIRPINNING > 0 && self.assigned_addresses.contains(&dest_address)
+        {
             return DestType::Drop;
         }
 
@@ -180,9 +207,17 @@ impl SymmetricNAT {
                             if self.flags & OUTBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
                                 route.last_used_time = current_time;
                             }
-                            let internet_address = self.addresses[i];
+                            let internet_address = self.assigned_addresses[i];
                             let internet_port = route.internet_port;
-                            return self.remap(src_address, src_port, internet_address, internet_port, dest_address, dest_port, current_time);
+                            return self.remap(
+                                src_address,
+                                src_port,
+                                internet_address,
+                                internet_port,
+                                dest_address,
+                                dest_port,
+                                current_time,
+                            );
                         }
                     }
                 }
@@ -212,7 +247,7 @@ impl SymmetricNAT {
                         addr_perm.swap(i, xorshift64star(&mut self.rng) as usize % (i + 1))
                     }
                 }
-                'next_addr :for internet_address_idx in &addr_perm[..addr_perm_len] {
+                'next_addr: for internet_address_idx in &addr_perm[..addr_perm_len] {
                     for route in &self.map[*internet_address_idx] {
                         if route.internet_port == src_port {
                             // This address and port combination collides so consider something else.
@@ -243,15 +278,18 @@ impl SymmetricNAT {
                 let mut random_address;
                 let mut random_port;
                 'regen: loop {
-                    random_address = previously_assigned_address_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.addresses_len);
-                    random_port = self.generate_port();
+                    random_address = previously_assigned_address_idx.unwrap_or_else(|| {
+                        xorshift64star(&mut self.rng) as usize % self.addresses_len
+                    });
+                    random_port = (xorshift64star(&mut self.rng) as usize
+                        % self.valid_internet_ports.len()) as u16
+                        + self.valid_internet_ports.start;
                     if self.flags & NO_PORT_PARITY == 0 {
                         // Force the port to have the same parity as the src_port.
                         random_port = (random_port & !1u16) | (src_port & 1u16);
                     }
                     for route in &self.map[random_address] {
-                        if route.internet_port == random_port
-                        {
+                        if route.internet_port == random_port {
                             continue 'regen;
                         }
                     }
@@ -260,8 +298,8 @@ impl SymmetricNAT {
                 (random_address, random_port)
             }
         };
-        let internet_address = self.addresses[internet_address_idx];
-        self.map[internet_address_idx].push(SymmetricEntry {
+        let internet_address = self.assigned_addresses[internet_address_idx];
+        self.map[internet_address_idx].push(Entry {
             intranet_address: src_address,
             intranet_port: src_port,
             internet_port,
@@ -269,7 +307,15 @@ impl SymmetricNAT {
             endpoint_port: dest_port,
             last_used_time: current_time,
         });
-        return self.remap(src_address, src_port, internet_address, internet_port, dest_address, dest_port, current_time);
+        return self.remap(
+            src_address,
+            src_port,
+            internet_address,
+            internet_port,
+            dest_address,
+            dest_port,
+            current_time,
+        );
     }
     pub fn from_internet(
         &mut self,
@@ -282,7 +328,7 @@ impl SymmetricNAT {
     ) -> Option<(u32, u16, u32, u16)> {
         let mut dest_address_idx = IP_POOLING_MAXIMUM;
         for i in 0..self.addresses_len {
-            if self.addresses[i] == dest_address {
+            if self.assigned_addresses[i] == dest_address {
                 dest_address_idx = i;
                 break;
             }
@@ -291,11 +337,11 @@ impl SymmetricNAT {
             // This packet was not addressed to this router/NAT
             return None;
         }
+        let routing_table = &mut self.map[dest_address_idx];
 
         let expiry = current_time - self.mapping_timeout;
         let mut needs_destruction = false;
         let mut i = 0;
-        let routing_table = &mut self.map[i];
         while i < routing_table.len() {
             let route = &mut routing_table[dest_address_idx];
             if route.last_used_time < expiry {
