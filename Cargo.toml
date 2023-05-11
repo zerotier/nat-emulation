@@ -1,10 +1,10 @@
 [package]
-name = "nat"
+name = "nat_emulation"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "nat"
+name = "nat_emulation"
 path = "src/lib.rs"
 doc = true
 
