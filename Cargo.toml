@@ -1,6 +1,7 @@
 [package]
 name = "nat_emulation"
 version = "0.1.0"
+authors = ["Monica Moniot"]
 edition = "2021"
 
 [lib]
