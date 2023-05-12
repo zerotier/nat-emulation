@@ -1,137 +1,144 @@
-use std::{collections::HashMap, ops::Range};
+use std::ops::RangeInclusive;
+use std::collections::HashMap;
 
 use crate::flags::*;
 use crate::rng::xorshift64star;
 
 pub enum DestType {
-    Internet {
-        src_address: u32,
-        src_port: u16,
-        dest_address: u32,
-        dest_port: u16,
+    External {
+        external_src_addr: u32,
+        external_src_port: u16,
     },
-    Intranet {
-        src_address: u32,
-        src_port: u16,
-        dest_address: u32,
-        dest_port: u16,
+    Internal {
+        external_src_addr: u32,
+        external_src_port: u16,
+        internal_dest_addr: u32,
+        internal_dest_port: u16,
     },
     Drop,
 }
-impl DestType {
-    pub fn unwrap(&self) -> Option<(u32, u16, u32, u16)> {
-        match self {
-            DestType::Internet { src_address, src_port, dest_address, dest_port }
-            | DestType::Intranet { src_address, src_port, dest_address, dest_port } => Some((*src_address, *src_port, *dest_address, *dest_port)),
-            DestType::Drop => None,
-        }
-    }
-}
 
 struct Entry {
-    intranet_address: u32,
-    intranet_port: u16,
-    internet_port: u16,
-    /// When `ADDRESS_DEPENDENT_MAPPING` is false this will be set to the very last `dest_address`
+    internal_addr: u32,
+    internal_port: u16,
+    external_port: u16,
+    /// When `ADDRESS_DEPENDENT_MAPPING` is false this will be set to the very last `dest_addr`
     /// sent through this mapping. This means `ADDRESS_DEPENDENT_FILTERING == true` will require
     /// that port on future inbound packets.
-    endpoint_address: u32,
+    endpoint_addr: u32,
     /// When `PORT_DEPENDENT_MAPPING` is false this will be set to the very last `dest_port`
     /// sent through this mapping. This means `PORT_DEPENDENT_FILTERING == true` will require
     /// that port on future inbound packets.
     endpoint_port: u16,
     last_used_time: i64,
 }
-pub const IP_POOLING_MAXIMUM: usize = 64;
-pub struct NAT<const FLAGS: u32, const L: usize> {
+pub struct NATRouter<const FLAGS: u32, const L: usize> {
     assigned_addresses: [u32; L],
     map: [Vec<Entry>; L],
     intranet: HashMap<u32, usize>,
     mapping_timeout: i64,
     max_routing_table_len: usize,
     rng: u64,
-    valid_internet_ports: Range<u16>,
-    valid_intranet_addresses: Range<u32>,
+    assigned_external_ports: RangeInclusive<u16>,
+    assigned_internal_addresses: RangeInclusive<u32>,
 }
-impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
-    pub fn new(
-        assigned_internet_addresses: [u32; L],
-        assigned_intranet_addresses: Range<u32>,
-        assigned_internet_ports: Range<u16>,
+impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
+    pub fn new_no_address_translation(
+        assigned_address: u32,
         rng_seed: u64,
         mapping_timeout: i64,
     ) -> Self {
         Self {
-            assigned_addresses: assigned_internet_addresses,
+            assigned_addresses: [assigned_address],
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
             // We need to make sure if port_parity is on the NAT does not crash from not being able
             // to generate a unique port.
-            max_routing_table_len: assigned_internet_ports.len() * 2 / 5,
+            max_routing_table_len: u16::MAX as usize * 2 / 5,
             rng: rng_seed,
-            valid_internet_ports: assigned_internet_ports,
-            valid_intranet_addresses: assigned_intranet_addresses,
+            assigned_external_ports: 0..=u16::MAX,
+            assigned_internal_addresses: assigned_address..=assigned_address,
+            intranet: HashMap::new(),
+        }
+    }
+}
+impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
+    pub fn new(
+        assigned_external_addresses: [u32; L],
+        assigned_internal_addresses: RangeInclusive<u32>,
+        assigned_external_ports: RangeInclusive<u16>,
+        rng_seed: u64,
+        mapping_timeout: i64,
+    ) -> Self {
+        Self {
+            assigned_addresses: assigned_external_addresses,
+            map: std::array::from_fn(|_| Vec::new()),
+            mapping_timeout,
+            // We need to make sure if port_parity is on the NAT does not crash from not being able
+            // to generate a unique port.
+            max_routing_table_len: assigned_external_ports.len() * 2 / 5,
+            rng: rng_seed,
+            assigned_external_ports,
+            assigned_internal_addresses,
             intranet: HashMap::new(),
         }
     }
     pub fn assigned_addresses(&self) -> &[u32; L] {
         &self.assigned_addresses
     }
-    pub fn assign_intranet_address(&mut self) -> u32 {
+    pub fn assign_internal_address(&mut self) -> u32 {
+        // Instead of dealing with u32 overflow we just cast up to a u64 and sidestep the problem.
+        let addr_len = *self.assigned_internal_addresses.end() as u64 - *self.assigned_internal_addresses.start() as u64 + 1;
         loop {
-            let random_address =
-                (xorshift64star(&mut self.rng) as usize % self.valid_intranet_addresses.len()) as u32 + self.valid_intranet_addresses.start;
-            if self.intranet.contains_key(&random_address) {
+            let random_addr =
+                (xorshift64star(&mut self.rng) % addr_len) as u32 + self.assigned_internal_addresses.start();
+            if self.intranet.contains_key(&random_addr) {
                 continue;
             }
-            // Randomly assign this connection an external ip address, we will only use this
-            // assigned address when IP_POOLING_BEHAVIOR_ARBITRARY is false
+            // Randomly assign this connection an external ip addr, we will only use this
+            // assigned addr when IP_POOLING_BEHAVIOR_ARBITRARY is false
             self.intranet
-                .insert(random_address, xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
-            return random_address;
+                .insert(random_addr, xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
+            return random_addr;
         }
     }
-    pub fn remove_intranet_address(&mut self, intranet_address: u32) {
-        self.intranet.remove(&intranet_address);
+    pub fn remove_internal_address(&mut self, internal_addr: u32) {
+        self.intranet.remove(&internal_addr);
     }
     fn remap(
         &mut self,
-        intranet_address: u32,
-        intranet_port: u16,
-        internet_address: u32,
-        internet_port: u16,
-        dest_address: u32,
+        internal_addr: u32,
+        internal_port: u16,
+        external_addr: u32,
+        external_port: u16,
+        dest_addr: u32,
         dest_port: u16,
         current_time: i64,
     ) -> DestType {
-        if let Some((_, _, dest_address, dest_port)) =
-            self.from_internet(internet_address, internet_port, dest_address, dest_port, false, current_time)
-        {
-            // Packet is for an internal recipient. We assume we are doing hairpinning to rewrite the packet for our intranet.
+        if let Some((dest_addr, dest_port)) = self.route_external_packet(external_addr, external_port, dest_addr, dest_port, false, current_time) {
+            // Packet is for an internal recipient. We assume we are doing hairpinning because the caller has already checked `NO_HAIRPINNING`.
             if FLAGS & INTERNAL_ADDRESS_AND_PORT_HAIRPINNING > 0 {
-                DestType::Intranet {
-                    src_address: intranet_address,
-                    src_port: intranet_port,
-                    dest_address,
-                    dest_port,
+                DestType::Internal {
+                    external_src_addr: internal_addr,
+                    external_src_port: internal_port,
+                    internal_dest_addr: dest_addr,
+                    internal_dest_port: dest_port,
                 }
             } else {
-                DestType::Intranet {
-                    src_address: internet_address,
-                    src_port: internet_port,
-                    dest_address,
-                    dest_port,
+                DestType::Internal {
+                    external_src_addr: external_addr,
+                    external_src_port: external_port,
+                    internal_dest_addr: dest_addr,
+                    internal_dest_port: dest_port,
                 }
             }
-        } else if self.assigned_addresses.contains(&dest_address) {
-            // Packet was addressed to our intranet using their external address and was filtered.
+        } else if self.assigned_addresses.contains(&dest_addr) {
+            // Packet was addressed to our internal using their external addr and was filtered.
             DestType::Drop
         } else {
-            DestType::Internet {
-                src_address: internet_address,
-                src_port: internet_port,
-                dest_address,
-                dest_port,
+            DestType::External {
+                external_src_addr: external_addr,
+                external_src_port: external_port,
             }
         }
     }
@@ -146,19 +153,19 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
                 addr_perm_len = 1;
             } else {
                 // If this NAT has the behavior of "Arbitrary" then we want to randomly
-                // choose which address to assign to this route.
+                // choose which addr to assign to this route.
                 for i in (1..addr_perm_len).rev() {
                     addr_perm.swap(i, xorshift64star(&mut self.rng) as usize % (i + 1))
                 }
             }
-            'next_addr: for internet_address_idx in &addr_perm[..addr_perm_len] {
-                for route in &self.map[*internet_address_idx] {
-                    if route.internet_port == src_port {
-                        // This address and port combination collides so consider something else.
+            'next_addr: for external_address_idx in &addr_perm[..addr_perm_len] {
+                for route in &self.map[*external_address_idx] {
+                    if route.external_port == src_port {
+                        // This addr and port combination collides so consider something else.
                         continue 'next_addr;
                     }
                 }
-                return (*internet_address_idx, src_port);
+                return (*external_address_idx, src_port);
             }
             if FLAGS & PORT_PRESERVATION_OVERLOAD > 0 {
                 // src_port is currently used by all of our IP addresses, so overload that port.
@@ -166,7 +173,7 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
             } else if FLAGS & PORT_PRESERVATION_OVERRIDE > 0 {
                 let routing_table = &mut self.map[addr_perm[0]];
                 for i in 0..routing_table.len() {
-                    if routing_table[i].internet_port == src_port {
+                    if routing_table[i].external_port == src_port {
                         // In port preservation override mode we remove everyone else who is
                         // using the chosen src_port.
                         routing_table.swap_remove(i);
@@ -176,31 +183,43 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
             }
         }
         // If we can't do any port preservation we have to randomly generate the port and address
-        let mut random_address;
+        let mut random_addr;
         let mut random_port;
         'regen: loop {
-            random_address = paired_address_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
-            random_port = (xorshift64star(&mut self.rng) as usize % self.valid_internet_ports.len()) as u16 + self.valid_internet_ports.start;
+            random_addr = paired_address_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
+            random_port = (xorshift64star(&mut self.rng) as usize % self.assigned_external_ports.len()) as u16 + self.assigned_external_ports.start();
             if FLAGS & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
                 random_port = (random_port & !1u16) | (src_port & 1u16);
             }
-            for route in &self.map[random_address] {
-                if route.internet_port == random_port {
+            for route in &self.map[random_addr] {
+                if route.external_port == random_port {
                     continue 'regen;
                 }
             }
             break;
         }
-        return (random_address, random_port);
+        return (random_addr, random_port);
     }
-    pub fn from_intranet(&mut self, src_address: u32, src_port: u16, dest_address: u32, dest_port: u16, current_time: i64) -> DestType {
-        if self.valid_intranet_addresses.contains(&dest_address) {
-            return DestType::Intranet { src_address, src_port, dest_address, dest_port };
-        } else if FLAGS & NO_HAIRPINNING > 0 && self.assigned_addresses.contains(&dest_address) {
+    pub fn route_internal_packet(
+        &mut self,
+        internal_src_addr: u32,
+        internal_src_port: u16,
+        external_dest_addr: u32,
+        external_dest_port: u16,
+        current_time: i64,
+    ) -> DestType {
+        if self.assigned_internal_addresses.contains(&external_dest_addr) {
+            return DestType::Internal {
+                external_src_addr: internal_src_addr,
+                external_src_port: internal_src_port,
+                internal_dest_addr: external_dest_addr,
+                internal_dest_port: external_dest_port,
+            };
+        } else if FLAGS & NO_HAIRPINNING > 0 && self.assigned_addresses.contains(&external_dest_addr) {
             return DestType::Drop;
         }
-        let assigned_address_idx = self.intranet.get(&src_address);
+        let assigned_address_idx = self.intranet.get(&internal_src_addr);
         if assigned_address_idx.is_none() {
             return DestType::Drop;
         }
@@ -216,25 +235,25 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
                 if route.last_used_time < expiry {
                     routing_table.swap_remove(i);
                     continue;
-                } else if route.intranet_address == src_address {
-                    if route.intranet_port == src_port {
-                        if (FLAGS & ADDRESS_DEPENDENT_MAPPING == 0 || route.endpoint_address == dest_address)
-                            && (FLAGS & PORT_DEPENDENT_MAPPING == 0 || route.endpoint_port == dest_port)
+                } else if route.internal_addr == internal_src_addr {
+                    if route.internal_port == internal_src_port {
+                        if (FLAGS & ADDRESS_DEPENDENT_MAPPING == 0 || route.endpoint_addr == external_dest_addr)
+                            && (FLAGS & PORT_DEPENDENT_MAPPING == 0 || route.endpoint_port == external_dest_port)
                         {
-                            route.endpoint_address = dest_address;
-                            route.endpoint_port = dest_port;
+                            route.endpoint_addr = external_dest_addr;
+                            route.endpoint_port = external_dest_port;
                             if FLAGS & OUTBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
                                 route.last_used_time = current_time;
                             }
-                            let internet_address = self.assigned_addresses[i];
-                            let internet_port = route.internet_port;
+                            let external_addr = self.assigned_addresses[i];
+                            let external_port = route.external_port;
                             return self.remap(
-                                src_address,
-                                src_port,
-                                internet_address,
-                                internet_port,
-                                dest_address,
-                                dest_port,
+                                internal_src_addr,
+                                internal_src_port,
+                                external_addr,
+                                external_port,
+                                external_dest_addr,
+                                external_dest_port,
                                 current_time,
                             );
                         }
@@ -251,50 +270,65 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
             }
         }
 
-        let (internet_address_idx, internet_port) = self.select_inet_address(
+        let (external_address_idx, external_port) = self.select_inet_address(
             if FLAGS & IP_POOLING_BEHAVIOR_ARBITRARY > 0 {
                 None
             } else {
                 assigned_address_idx.cloned()
             },
-            src_port,
+            internal_src_port,
         );
-        let internet_address = self.assigned_addresses[internet_address_idx];
-        self.map[internet_address_idx].push(Entry {
-            intranet_address: src_address,
-            intranet_port: src_port,
-            internet_port,
-            endpoint_address: dest_address,
-            endpoint_port: dest_port,
+        let external_addr = self.assigned_addresses[external_address_idx];
+        self.map[external_address_idx].push(Entry {
+            internal_addr: internal_src_addr,
+            internal_port: internal_src_port,
+            external_port,
+            endpoint_addr: external_dest_addr,
+            endpoint_port: external_dest_port,
             last_used_time: current_time,
         });
         return self.remap(
-            src_address,
-            src_port,
-            internet_address,
-            internet_port,
-            dest_address,
-            dest_port,
+            internal_src_addr,
+            internal_src_port,
+            external_addr,
+            external_port,
+            external_dest_addr,
+            external_dest_port,
             current_time,
         );
     }
-    pub fn from_internet(
+    /// * `external_src_addr`:
+    /// * `external_src_port`:
+    /// * `external_dest_addr`:
+    /// * `external_dest_port`:
+    /// * `disable_filtering`: If true the NAT will disable its firewall for this one packet.
+    ///    Certain NATs will read IP payloads and disable filtering if the packet is from a permitted
+    ///    protocol like ICMP. It is up to the caller to emulate this behavior if they wish.
+    ///
+    /// Return value is `None` if the packet would be dropped by the NAT, either because there is no
+    /// recipient with the specified external dest_addr and dest_port, or because the packet was
+    /// actively filtered out by a firewall.
+    ///
+    /// Return value is `Some((internal_dest_addr, internal_dest_port))` if the packet was accepted,
+    /// The caller must overwrite the `external_dest_addr` and `external_dest_port` fields of the
+    /// packet with the returned `internal_dest_addr` and `internal_dest_port` values.
+    pub fn route_external_packet(
         &mut self,
-        src_address: u32,
-        src_port: u16,
-        dest_address: u32,
-        dest_port: u16,
+        external_src_addr: u32,
+        external_src_port: u16,
+        external_dest_addr: u32,
+        external_dest_port: u16,
         disable_filtering: bool,
         current_time: i64,
-    ) -> Option<(u32, u16, u32, u16)> {
-        let mut dest_address_idx = IP_POOLING_MAXIMUM;
+    ) -> Option<(u32, u16)> {
+        let mut dest_address_idx = self.assigned_addresses.len();
         for i in 0..self.assigned_addresses.len() {
-            if self.assigned_addresses[i] == dest_address {
+            if self.assigned_addresses[i] == external_dest_addr {
                 dest_address_idx = i;
                 break;
             }
         }
-        if dest_address_idx == IP_POOLING_MAXIMUM {
+        if dest_address_idx == self.assigned_addresses.len() {
             // This packet was not addressed to this router/NAT
             return None;
         }
@@ -307,27 +341,27 @@ impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
             let route = &mut routing_table[dest_address_idx];
             if route.last_used_time < expiry {
                 routing_table.swap_remove(i);
-            } else if route.internet_port == dest_port {
+                continue;
+            } else if route.external_port == external_dest_port {
                 if disable_filtering
-                    || ((FLAGS & ADDRESS_DEPENDENT_FILTERING == 0 || route.endpoint_address == src_address)
-                        && (FLAGS & PORT_DEPENDENT_FILTERING == 0 || route.endpoint_port == src_port))
+                    || ((FLAGS & ADDRESS_DEPENDENT_FILTERING == 0 || route.endpoint_addr == external_src_addr)
+                        && (FLAGS & PORT_DEPENDENT_FILTERING == 0 || route.endpoint_port == external_src_port))
                 {
                     if FLAGS & INBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
                         route.last_used_time = current_time;
                     }
-                    return Some((src_address, src_port, route.intranet_address, route.intranet_port));
+                    return Some((route.internal_addr, route.internal_port));
                 } else if FLAGS & FILTERED_INBOUND_DESTROYS_MAPPING > 0 {
                     needs_destruction = true;
                 }
-            } else {
-                i += 1;
             }
+            i += 1;
         }
         // We could not find a valid recipient or the packet was filtered.
         if needs_destruction {
             while i < routing_table.len() {
                 let route = &routing_table[i];
-                if route.internet_port == dest_port {
+                if route.external_port == external_dest_port {
                     routing_table.swap_remove(i);
                 } else {
                     i += 1;
