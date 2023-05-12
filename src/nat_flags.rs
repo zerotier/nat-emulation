@@ -119,8 +119,8 @@ pub mod predefines {
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
-    /// let reroute = firewall.receive_external_packet(server_addr, server_port, client_addr, client_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = firewall.receive_external_packet(server_addr, server_port, client_addr, client_port, false, time);
+    /// assert!(translation.is_none());
     ///
     /// time += 100;
     /// match firewall.send_internal_packet(client_addr, client_port, server_addr, server_port, time) {
@@ -138,8 +138,8 @@ pub mod predefines {
     /// assert_eq!(internal_dest_port, client_port);
     ///
     /// time += timeout + 1;
-    /// let reroute = firewall.receive_external_packet(server_addr, server_port, client_addr, client_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = firewall.receive_external_packet(server_addr, server_port, client_addr, client_port, false, time);
+    /// assert!(translation.is_none());
     /// ```
     pub const STATEFUL_FIREWALL: u32 = PORT_PRESERVATION_OVERRIDE;
     /// Equivalent to: `STATEFUL_FIREWALL | ADDRESS_DEPENDENT_FILTERING`
@@ -160,12 +160,12 @@ pub mod predefines {
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
-    /// let reroute = firewall.send_internal_packet(client_addr, client_port, server0_addr, server_port, time);
-    /// assert!(reroute.is_external());
+    /// let translation = firewall.send_internal_packet(client_addr, client_port, server0_addr, server_port, time);
+    /// assert!(translation.is_external());
     ///
     /// time += 100;
-    /// let reroute = firewall.receive_external_packet(server1_addr, server_port, client_addr, client_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = firewall.receive_external_packet(server1_addr, server_port, client_addr, client_port, false, time);
+    /// assert!(translation.is_none());
     /// ```
     pub const RESTRICTED_FIREWALL: u32 = STATEFUL_FIREWALL | ADDRESS_DEPENDENT_FILTERING;
     /// Equivalent to: `STATEFUL_FIREWALL | ADDRESS_AND_PORT_DEPENDENT_FILTERING`
@@ -187,12 +187,12 @@ pub mod predefines {
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
-    /// let reroute = firewall.send_internal_packet(client_addr, client_port, server_addr, server0_port, time);
-    /// assert!(reroute.is_external());
+    /// let translation = firewall.send_internal_packet(client_addr, client_port, server_addr, server0_port, time);
+    /// assert!(translation.is_external());
     ///
     /// time += 100;
-    /// let reroute = firewall.receive_external_packet(server_addr, server1_port, client_addr, client_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = firewall.receive_external_packet(server_addr, server1_port, client_addr, client_port, false, time);
+    /// assert!(translation.is_none());
     /// ```
     pub const PORT_RESTRICTED_FIREWALL: u32 = STATEFUL_FIREWALL | ADDRESS_AND_PORT_DEPENDENT_FILTERING;
     /// Equivalent to: `PORT_RESTRICTED_FIREWALL | PORT_PRESERVATION_OVERLOAD`
@@ -215,8 +215,8 @@ pub mod predefines {
     /// let server_ex_port = 80;
     ///
     /// time += 100;
-    /// let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port, nat_ex_addr, client_in_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = nat.receive_external_packet(server_ex_addr, server_ex_port, nat_ex_addr, client_in_port, false, time);
+    /// assert!(translation.is_none());
     ///
     /// time += 100;
     /// match nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port, time) {
@@ -239,8 +239,8 @@ pub mod predefines {
     /// }
     ///
     /// time += timeout + 1;
-    /// let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port, nat_ex_addr, client_in_port, false, time);
-    /// assert!(reroute.is_none());
+    /// let translation = nat.receive_external_packet(server_ex_addr, server_ex_port, nat_ex_addr, client_in_port, false, time);
+    /// assert!(translation.is_none());
     /// ```
     pub const EASY_NAT: u32 = 0;
 
@@ -271,8 +271,8 @@ pub mod predefines {
     ///         assert!(external_src_port >= 49152);
     ///
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port, external_src_addr, external_src_port, false, time);
-    ///         assert!(reroute.is_some());
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port, external_src_addr, external_src_port, false, time);
+    ///         assert!(translation.is_some());
     ///     }
     /// }
     /// ```
@@ -299,9 +299,9 @@ pub mod predefines {
     /// let server_ex_port1 = 17;
     ///
     /// time += 100;
-    /// let reroute0 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port0, time);
-    /// let reroute1 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port1, time);
-    /// match (reroute0, reroute1) {
+    /// let translation0 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port0, time);
+    /// let translation1 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port1, time);
+    /// match (translation0, translation1) {
     ///     (
     ///         External {
     ///             external_src_addr: ex_src_addr0,
@@ -314,14 +314,11 @@ pub mod predefines {
     ///     ) => {
     ///         assert_eq!(ex_src_addr0, nat_ex_addr);
     ///         assert_eq!(ex_src_addr1, nat_ex_addr);
-    ///         // These ports don't match because of Address and Port-Dependent Mapping.
     ///         assert!(ex_src_port0 != ex_src_port1);
-    ///         // The server cannot mix and match the ports of the client when the NAT has Address
-    ///         // and Port-Dependent filtering.
-    ///         // The src and dest must be "symmetric" with what the NAT mapped.
+    ///
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr1, ex_src_port1, false, time);
-    ///         assert!(reroute.is_none());
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr1, ex_src_port1, false, time);
+    ///         assert!(translation.is_none());
     ///     }
     ///     _ => assert!(false),
     /// }
@@ -344,9 +341,9 @@ pub mod predefines {
     /// let server_ex_port1 = 17;
     ///
     /// time += 100;
-    /// let reroute0 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port0, time);
-    /// let reroute1 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port1, time);
-    /// match (reroute0, reroute1) {
+    /// let translation0 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port0, time);
+    /// let translation1 = nat.send_internal_packet(client_in_addr, client_in_port, server_ex_addr, server_ex_port1, time);
+    /// match (translation0, translation1) {
     ///     (
     ///         External {
     ///             external_src_addr: ex_src_addr0,
@@ -362,19 +359,17 @@ pub mod predefines {
     ///         // There is a 1/4 probability that we randomly do get the same external IP but under
     ///         // this rng seed that doesn't happen.
     ///         assert!(ex_src_addr0 != ex_src_addr1);
-    ///         // Since we have different addresses we could randomly get the same port but under
-    ///         // this rng seed that doesn't happen.
+    ///         // Since we have different addresses there is a miniscule chance we could randomly
+    ///         // get the same port, but under this rng seed that doesn't happen.
     ///         assert!(ex_src_port0 != ex_src_port1);
     ///
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr1, ex_src_port1, false, time);
-    ///         assert!(reroute.is_none());
-    ///         // A NAT wouldn't normally close this mapping yet because it received a packet
-    ///         // before the timeout. However this hard NAT only refreshes the timeout when the
-    ///         // client sends a packet.
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr1, ex_src_port1, false, time);
+    ///         assert!(translation.is_none());
+    ///         // This hard NAT only refreshes the timeout when the client sends a packet.
     ///         time += timeout - 1;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr0, ex_src_port0, false, time);
-    ///         assert!(reroute.is_none());
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port0, ex_src_addr0, ex_src_port0, false, time);
+    ///         assert!(translation.is_none());
     ///     }
     ///     _ => assert!(false),
     /// }
@@ -405,13 +400,13 @@ pub mod predefines {
     ///         assert_eq!(external_src_addr, nat_ex_addr);
     ///
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port1, external_src_addr, external_src_port, false, time);
-    ///         assert!(reroute.is_none());
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port1, external_src_addr, external_src_port, false, time);
+    ///         assert!(translation.is_none());
     ///         // This cruel NAT deletes the server's mapping to the client because the server
     ///         // replied once on the wrong port. Some rare NATs do this!
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, external_src_addr, external_src_port, false, time);
-    ///         assert!(reroute.is_none());
+    ///         let translation = nat.receive_external_packet(server_ex_addr, server_ex_port0, external_src_addr, external_src_port, false, time);
+    ///         assert!(translation.is_none());
     ///     }
     /// }
     /// ```
