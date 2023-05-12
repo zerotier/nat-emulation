@@ -96,7 +96,7 @@ mod examples {
         assert!(reroute.is_none());
     }
     #[test]
-    fn easy_nat_example() {
+    fn easy_nat() {
         use nat_emulation::predefines::EASY_NAT;
         use nat_emulation::{DestType, NATRouter};
         let mut time = 100;
@@ -138,7 +138,7 @@ mod examples {
         assert!(reroute.is_none());
     }
     #[test]
-    fn full_cone_example() {
+    fn full_cone() {
         use nat_emulation::predefines::FULL_CONE_NAT;
         use nat_emulation::{DestType, NATRouter};
         let mut time = 100;
@@ -168,7 +168,7 @@ mod examples {
         }
     }
     #[test]
-    fn symmetric_nat_example() {
+    fn symmetric_nat() {
         use nat_emulation::predefines::SYMMETRIC_NAT;
         use nat_emulation::{DestType::*, NATRouter};
         let mut time = 100;
@@ -211,7 +211,7 @@ mod examples {
         }
     }
     #[test]
-    fn hard_nat_example() {
+    fn hard_nat() {
         use nat_emulation::predefines::HARD_NAT;
         use nat_emulation::{DestType::*, NATRouter};
         let mut time = 100;
@@ -261,7 +261,7 @@ mod examples {
         }
     }
     #[test]
-    fn misbehaving_nat_example() {
+    fn misbehaving_nat() {
         use nat_emulation::predefines::MISBEHAVING_NAT;
         use nat_emulation::{DestType, NATRouter};
         let mut time = 100;
