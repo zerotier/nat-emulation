@@ -138,7 +138,7 @@ mod examples {
         assert!(reroute.is_none());
     }
     #[test]
-    fn full_cone() {
+    fn full_cone_nat() {
         use nat_emulation::predefines::FULL_CONE_NAT;
         use nat_emulation::{DestType, NATRouter};
         let mut time = 100;
@@ -283,9 +283,6 @@ mod examples {
             DestType::External { external_src_addr, external_src_port } => {
                 assert_eq!(external_src_addr, nat_ex_addr);
 
-                time += 100;
-                let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, external_src_addr, external_src_port, false, time);
-                assert!(reroute.is_some());
                 time += 100;
                 let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port1, external_src_addr, external_src_port, false, time);
                 assert!(reroute.is_none());

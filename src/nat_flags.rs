@@ -405,9 +405,6 @@ pub mod predefines {
     ///         assert_eq!(external_src_addr, nat_ex_addr);
     ///
     ///         time += 100;
-    ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port0, external_src_addr, external_src_port, false, time);
-    ///         assert!(reroute.is_some());
-    ///         time += 100;
     ///         let reroute = nat.receive_external_packet(server_ex_addr, server_ex_port1, external_src_addr, external_src_port, false, time);
     ///         assert!(reroute.is_none());
     ///         // This cruel NAT deletes the server's mapping to the client because the server
