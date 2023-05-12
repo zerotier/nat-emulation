@@ -66,6 +66,11 @@ pub struct NATRouter<const FLAGS: u32, const L: usize> {
     assigned_internal_addresses: RangeInclusive<u32>,
 }
 impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
+    /// Creates a NAT object that has address translation disabled.
+    /// This means the NAT will use the same single IP address accross both the internal and
+    /// external network. An object created this way is no longer really a NAT, but rather a
+    /// firewall. It can still translate ports however, unless you disable this behavior as well
+    /// with the `PORT_PRESERVATION_OVERRIDE` flag.
     pub fn new_no_address_translation(
         assigned_address: u32,
         rng_seed: u64,
@@ -75,6 +80,17 @@ impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
     }
 }
 impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
+    /// Creates a new NAT struct.
+    /// * `assigned_external_addresses`: The list of external IP addresses the NAT is allowed to use.
+    /// * `assigned_internal_addresses`: The range of internal IP addresses the NAT is allowed to
+    ///   assign clients inside of its internal network.
+    /// * `assigned_external_ports`: The list of dynamic ports that the NAT is allowed to use on the
+    ///   external network. The NAT may use ports outside of this range for port preservation.
+    /// * `rng_seed`: Deterministic seed for the NAT's random number generator used for generating
+    ///   dynamic ports, internal addresses and external addresses.
+    /// * `mapping_timeout`: How long the NAT keeps an address translation mapping open for. It has
+    ///   unspecified units, the caller is expected to use the same unit of time for this value as
+    ///   they do for all other `current_time` timestamp values in this library.
     pub fn new(
         assigned_external_addresses: [u32; L],
         assigned_internal_addresses: RangeInclusive<u32>,
@@ -129,7 +145,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         dest_port: u16,
         current_time: i64,
     ) -> DestType {
-        if let Some((dest_addr, dest_port)) = self.route_external_packet(external_addr, external_port, dest_addr, dest_port, false, current_time) {
+        if let Some((dest_addr, dest_port)) = self.receive_external_packet(external_addr, external_port, dest_addr, dest_port, false, current_time) {
             // Packet is for an internal recipient. We assume we are doing hairpinning because the caller has already checked `NO_HAIRPINNING`.
             if FLAGS & INTERNAL_ADDRESS_AND_PORT_HAIRPINNING > 0 {
                 DestType::Internal {
@@ -215,7 +231,26 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         }
         return (random_addr, random_port);
     }
-    pub fn route_internal_packet(
+    /// * `internal_src_addr`: The source address of the sender on the NAT's internal network.
+    /// * `internal_src_port`: The source port of the sender on the NAT's internal network.
+    /// * `external_dest_addr`: The destination address of the receiver on either the internal or
+    ///   external network.
+    /// * `external_dest_port`: The destination port of the receiver on either the internal or the
+    ///   external network.
+    /// * `current_time`: A timestamp of the packet's arrival to the NAT, used to process timeouts.
+    ///
+    /// Return value is `DestType::Drop` if the packet would be dropped by the NAT, this happens if
+    /// the packet was destined for an internal recipient that could not be routed to.
+    ///
+    /// Return value is `DestType::External` if the packet was accepted, and needs to be routed to a
+    /// recipient on the external network, which is usually the internet. Within the packet is the
+    /// translated address and port of the sender. The caller is expected to overwrite the source IP
+    /// and port fields of the packet with this translated address and port.
+    ///
+    /// Return value is `DestType::Internal` if the packet was accepted, and needs to be routed to a
+    /// recipient on the NAT's internal network. The caller is expected to overwrite the source and
+    /// destination information contained in the enum onto the packet.
+    pub fn send_internal_packet(
         &mut self,
         internal_src_addr: u32,
         internal_src_port: u16,
@@ -317,13 +352,16 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
             current_time,
         );
     }
-    /// * `external_src_addr`:
-    /// * `external_src_port`:
-    /// * `external_dest_addr`:
-    /// * `external_dest_port`:
+    /// * `external_src_addr`: The source address of the sender on the external network.
+    /// * `external_src_port`: The source port of the sender on the external network.
+    /// * `external_dest_addr`: The translated destination address of the receiver on the external
+    ///   network.
+    /// * `external_dest_port`: The translated destination port of the receiver on the external
+    ///   network.
     /// * `disable_filtering`: If true the NAT will disable its firewall for this one packet.
-    ///    Certain NATs will read IP payloads and disable filtering if the packet is from a permitted
-    ///    protocol like ICMP. It is up to the caller to emulate this behavior if they wish.
+    ///    Certain NATs will read IP payloads and disable filtering if the packet is from a
+    ///    permitted protocol like ICMP. It is up to the caller to emulate this behavior if they wish.
+    /// * `current_time`: A timestamp of the packet's arrival to the NAT, used to process timeouts.
     ///
     /// Return value is `None` if the packet would be dropped by the NAT, either because there is no
     /// recipient with the specified external dest_addr and dest_port, or because the packet was
@@ -332,7 +370,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
     /// Return value is `Some((internal_dest_addr, internal_dest_port))` if the packet was accepted,
     /// The caller must overwrite the `external_dest_addr` and `external_dest_port` fields of the
     /// packet with the returned `internal_dest_addr` and `internal_dest_port` values.
-    pub fn route_external_packet(
+    pub fn receive_external_packet(
         &mut self,
         external_src_addr: u32,
         external_src_port: u16,
@@ -379,6 +417,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         }
         // We could not find a valid recipient or the packet was filtered.
         if needs_destruction {
+            let mut i = 0;
             while i < routing_table.len() {
                 let route = &routing_table[i];
                 if route.external_port == external_dest_port {

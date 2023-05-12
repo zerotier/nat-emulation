@@ -3,8 +3,7 @@
 ///
 /// By bitwise or'ing them together one can specify any combination of NAT behaviors.
 /// These flags directly model NAT behaviors, however certain combinations can accurately emulate
-/// common stateful firewall behaviors as well. One only needs to make sure the NAT is assigned a
-/// single intranet address that matches its external address to emulate a firewall.
+/// common stateful firewall behaviors as well.
 ///
 /// A NAT with a flag set to true is at least as "hard" to punch through as a NAT with the same flag
 /// set to false. In other words, the more flags that are set to true for a NAT, the more misbehaved
