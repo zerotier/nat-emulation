@@ -1,5 +1,5 @@
-use std::ops::RangeInclusive;
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 
 use crate::flags::*;
 use crate::rng::xorshift64star;
@@ -71,12 +71,14 @@ impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
     /// external network. An object created this way is no longer really a NAT, but rather a
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
-    pub fn new_no_address_translation(
-        assigned_address: u32,
-        rng_seed: u64,
-        mapping_timeout: i64,
-    ) -> Self {
-        Self::new([assigned_address], assigned_address..=assigned_address, 0..=u16::MAX, rng_seed, mapping_timeout)
+    pub fn new_no_address_translation(assigned_address: u32, rng_seed: u64, mapping_timeout: i64) -> Self {
+        Self::new(
+            [assigned_address],
+            assigned_address..=assigned_address,
+            0..=u16::MAX,
+            rng_seed,
+            mapping_timeout,
+        )
     }
 }
 impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
@@ -98,8 +100,14 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         rng_seed: u64,
         mapping_timeout: i64,
     ) -> Self {
-        debug_assert!(assigned_internal_addresses.start() <= assigned_internal_addresses.end(), "The assigned_internal_addresses range must be nonempty");
-        debug_assert!(assigned_external_ports.start() <= assigned_external_ports.end(), "The assigned_external_ports range must be nonempty");
+        debug_assert!(
+            assigned_internal_addresses.start() <= assigned_internal_addresses.end(),
+            "The assigned_internal_addresses range must be nonempty"
+        );
+        debug_assert!(
+            assigned_external_ports.start() <= assigned_external_ports.end(),
+            "The assigned_external_ports range must be nonempty"
+        );
         Self {
             assigned_addresses: assigned_external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
@@ -120,8 +128,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         // Instead of dealing with u32 overflow we just cast up to a u64 and sidestep the problem.
         let addr_len = *self.assigned_internal_addresses.end() as u64 - *self.assigned_internal_addresses.start() as u64 + 1;
         loop {
-            let random_addr =
-                (xorshift64star(&mut self.rng) % addr_len) as u32 + self.assigned_internal_addresses.start();
+            let random_addr = (xorshift64star(&mut self.rng) % addr_len) as u32 + self.assigned_internal_addresses.start();
             if self.intranet.contains_key(&random_addr) {
                 continue;
             }
@@ -289,7 +296,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                 if route.last_used_time < expiry {
                     routing_table.swap_remove(i);
                     continue;
-                } else if route.internal_addr == internal_src_addr &&  route.internal_port == internal_src_port {
+                } else if route.internal_addr == internal_src_addr && route.internal_port == internal_src_port {
                     let addr_match = route.endpoint_addr == external_dest_addr;
                     let port_match = route.endpoint_port == external_dest_port;
                     let route_ex_port = route.external_port;
@@ -327,10 +334,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
             if let Some((ex_addr_idx, Some(ex_port))) = previous_mapping {
                 (ex_addr_idx, ex_port)
             } else {
-                self.select_inet_address(
-                    previous_mapping.map(|a| a.0),
-                    internal_src_port,
-                )
+                self.select_inet_address(previous_mapping.map(|a| a.0), internal_src_port)
             }
         };
         let external_addr = self.assigned_addresses[external_address_idx];
