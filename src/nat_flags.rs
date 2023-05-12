@@ -32,20 +32,20 @@ pub mod flags {
     /// outbound mapping.
     pub const IP_POOLING_BEHAVIOR_ARBITRARY: u32 = 1 << 0;
 
-    /// If true, the NAT will generate an additional outbound mapping for a given src_address and
-    /// src_port address whenever the dest_address does not match the previous mappings.
+    /// If true, the NAT will generate a new outbound mapping for a given src_addr and
+    /// src_port address whenever the dest_addr does not match the previous mappings.
     pub const ADDRESS_DEPENDENT_MAPPING: u32 = 1 << 1;
-    /// If true, the NAT will generate an additional outbound mapping for a given src_address and
+    /// If true, the NAT will generate a new outbound mapping for a given src_addr and
     /// src_port address whenever the dest_port does not match the previous mappings.
     pub const PORT_DEPENDENT_MAPPING: u32 = 1 << 2;
     /// If true, the NAT will do both address and port dependent mapping.
     pub const ADDRESS_AND_PORT_DEPENDENT_MAPPING: u32 = ADDRESS_DEPENDENT_MAPPING | PORT_DEPENDENT_MAPPING;
 
-    /// If true, the NAT will drop incoming packets that do not have the same src_address as the
-    /// mapping for the given dest_address and dest_port.
+    /// If true, the NAT will drop incoming packets that do not have the same src_addr as the
+    /// mapping for the given dest_addr and dest_port.
     pub const ADDRESS_DEPENDENT_FILTERING: u32 = 1 << 3;
     /// If true, the NAT will drop incoming packets that do not have the same src_port as the
-    /// mapping for the given dest_address and dest_port.
+    /// mapping for the given dest_addr and dest_port.
     pub const PORT_DEPENDENT_FILTERING: u32 = 1 << 4;
     /// If true, the NAT will do both address and port dependent filtering.
     pub const ADDRESS_AND_PORT_DEPENDENT_FILTERING: u32 = ADDRESS_DEPENDENT_FILTERING | PORT_DEPENDENT_FILTERING;
@@ -54,10 +54,10 @@ pub mod flags {
     /// them.
     ///
     /// By default the NAT will always hairpin intranet to intranet packets, rewriting the
-    /// src_address and src_port to be the external internet address and port of the sender.
+    /// src_addr and src_port to be the external internet address and port of the sender.
     pub const NO_HAIRPINNING: u32 = 1 << 5;
     /// If true, the NAT will attempt to hairpin intranet to intranet packets, but it will rewrite
-    /// the src_address and src_port to be the internal intranet address and port of the sender.
+    /// the src_addr and src_port to be the internal intranet address and port of the sender.
     ///
     /// This flag has no effect if `NO_HAIRPINNING` is true.
     pub const INTERNAL_ADDRESS_AND_PORT_HAIRPINNING: u32 = 1 << 6;
@@ -72,7 +72,7 @@ pub mod flags {
     /// permanently keep a mapping open through this NAT.
     pub const OUTBOUND_REFRESH_BEHAVIOR_FALSE: u32 = 1 << 7;
     /// If true, if an inbound packet is filtered by the NAT, the NAT will also destroy any mappings
-    /// connected to the dest_address and dest_port specified by the inbound packet.
+    /// connected to the dest_addr and dest_port specified by the inbound packet.
     pub const FILTERED_INBOUND_DESTROYS_MAPPING: u32 = 1 << 9;
 
     /// If true, the NAT will make no attempt to preserve the source port number of a outbound
