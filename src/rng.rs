@@ -1,3 +1,5 @@
+/// xorshift* by Marsaglia.
+/// Simple and deterministic which makes it good for testing.
 pub fn xorshift64star(state: &mut u64) -> u64 {
     *state ^= *state >> 12;
     *state ^= *state << 25;
