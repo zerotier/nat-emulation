@@ -43,10 +43,9 @@ struct Entry {
     last_used_time: i64,
 }
 pub const IP_POOLING_MAXIMUM: usize = 64;
-pub struct NAT<const FLAGS: u32> {
-    addresses_len: usize,
-    assigned_addresses: [u32; IP_POOLING_MAXIMUM],
-    map: [Vec<Entry>; IP_POOLING_MAXIMUM],
+pub struct NAT<const FLAGS: u32, const L: usize> {
+    assigned_addresses: [u32; L],
+    map: [Vec<Entry>; L],
     intranet: HashMap<u32, usize>,
     mapping_timeout: i64,
     max_routing_table_len: usize,
@@ -54,19 +53,16 @@ pub struct NAT<const FLAGS: u32> {
     valid_internet_ports: Range<u16>,
     valid_intranet_addresses: Range<u32>,
 }
-impl<const FLAGS: u32> NAT<FLAGS> {
+impl<const FLAGS: u32, const L: usize> NAT<FLAGS, L> {
     pub fn new(
-        assigned_internet_addresses: &[u32],
+        assigned_internet_addresses: [u32; L],
         assigned_intranet_addresses: Range<u32>,
         assigned_internet_ports: Range<u16>,
         rng_seed: u64,
         mapping_timeout: i64,
     ) -> Self {
-        let mut addresses = [0u32; IP_POOLING_MAXIMUM];
-        addresses[..assigned_internet_addresses.len()].copy_from_slice(assigned_internet_addresses);
         Self {
-            addresses_len: assigned_internet_addresses.len(),
-            assigned_addresses: addresses,
+            assigned_addresses: assigned_internet_addresses,
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
             // We need to make sure if port_parity is on the NAT does not crash from not being able
@@ -78,8 +74,8 @@ impl<const FLAGS: u32> NAT<FLAGS> {
             intranet: HashMap::new(),
         }
     }
-    pub fn assigned_addresses(&self) -> &[u32] {
-        &self.assigned_addresses[..self.addresses_len]
+    pub fn assigned_addresses(&self) -> &[u32; L] {
+        &self.assigned_addresses
     }
     pub fn assign_intranet_address(&mut self) -> u32 {
         loop {
@@ -91,7 +87,7 @@ impl<const FLAGS: u32> NAT<FLAGS> {
             // Randomly assign this connection an external ip address, we will only use this
             // assigned address when IP_POOLING_BEHAVIOR_ARBITRARY is false
             self.intranet
-                .insert(random_address, xorshift64star(&mut self.rng) as usize % self.addresses_len);
+                .insert(random_address, xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
             return random_address;
         }
     }
@@ -141,8 +137,8 @@ impl<const FLAGS: u32> NAT<FLAGS> {
     }
     fn select_inet_address(&mut self, paired_address_idx: Option<usize>, src_port: u16) -> (usize, u16) {
         if FLAGS & NO_PORT_PRESERVATION == 0 {
-            let mut addr_perm: [usize; IP_POOLING_MAXIMUM] = std::array::from_fn(|i| i);
-            let mut addr_perm_len = self.addresses_len;
+            let mut addr_perm: [usize; L] = std::array::from_fn(|i| i);
+            let mut addr_perm_len = self.assigned_addresses.len();
             if let Some(idx) = paired_address_idx {
                 // If this NAT has the behavior of "Paired" then we may only consider
                 // the paired address.
@@ -183,7 +179,7 @@ impl<const FLAGS: u32> NAT<FLAGS> {
         let mut random_address;
         let mut random_port;
         'regen: loop {
-            random_address = paired_address_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.addresses_len);
+            random_address = paired_address_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
             random_port = (xorshift64star(&mut self.rng) as usize % self.valid_internet_ports.len()) as u16 + self.valid_internet_ports.start;
             if FLAGS & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
@@ -210,7 +206,7 @@ impl<const FLAGS: u32> NAT<FLAGS> {
         }
 
         let expiry = current_time - self.mapping_timeout;
-        for address_idx in 0..self.addresses_len {
+        for address_idx in 0..self.assigned_addresses.len() {
             let routing_table = &mut self.map[address_idx];
             let mut oldest_time = i64::MAX;
             let mut oldest_idx = 0;
@@ -292,7 +288,7 @@ impl<const FLAGS: u32> NAT<FLAGS> {
         current_time: i64,
     ) -> Option<(u32, u16, u32, u16)> {
         let mut dest_address_idx = IP_POOLING_MAXIMUM;
-        for i in 0..self.addresses_len {
+        for i in 0..self.assigned_addresses.len() {
             if self.assigned_addresses[i] == dest_address {
                 dest_address_idx = i;
                 break;
