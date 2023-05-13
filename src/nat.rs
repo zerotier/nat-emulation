@@ -103,10 +103,20 @@ impl<const M: usize> NATRouter<M> {
         rng_seed: u64,
         mapping_timeout: i64,
     ) -> Self {
-        debug_assert!(external_addresses.len() <= M, "The external_addresses array must have length less than or equal to M");
+        debug_assert!(
+            external_addresses.len() <= M,
+            "The external_addresses array must have length less than or equal to M"
+        );
         let mut external_addresses_mem = [0; M];
         external_addresses_mem[..external_addresses.len()].copy_from_slice(external_addresses);
-        let mut ret = Self::new(flags, external_addresses_mem, internal_addresses, external_dynamic_ports, rng_seed, mapping_timeout);
+        let mut ret = Self::new(
+            flags,
+            external_addresses_mem,
+            internal_addresses,
+            external_dynamic_ports,
+            rng_seed,
+            mapping_timeout,
+        );
         ret.external_addresses_len = external_addresses.len();
         ret
     }
@@ -139,7 +149,7 @@ impl<const M: usize> NATRouter<M> {
             "The external_dynamic_ports range must be nonempty"
         );
         Self {
-            external_addresses_len: external_addresses.len(),
+            external_addresses_len: M,
             external_addresses: external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
@@ -153,12 +163,15 @@ impl<const M: usize> NATRouter<M> {
             flags,
         }
     }
+    #[inline]
     pub fn external_addresses(&self) -> &[u32] {
         &self.external_addresses[..self.external_addresses_len]
     }
+    #[inline]
     pub fn internal_addresses(&self) -> &RangeInclusive<u32> {
         &self.assigned_internal_addresses
     }
+    #[inline]
     pub fn external_dynamic_ports(&self) -> &RangeInclusive<u16> {
         &self.assigned_external_ports
     }
@@ -172,11 +185,16 @@ impl<const M: usize> NATRouter<M> {
             }
             // Randomly assign this connection an external ip address, we will only use this
             // assigned addr when IP_POOLING_BEHAVIOR_ARBITRARY is false
-            self.intranet
-                .insert(random_addr, xorshift64star(&mut self.rng) as usize % self.external_addresses_len);
+            let ex_addr_idx = if M == 1 {
+                0
+            } else {
+                xorshift64star(&mut self.rng) as usize % self.external_addresses_len
+            };
+            self.intranet.insert(random_addr, ex_addr_idx);
             return random_addr;
         }
     }
+    #[inline]
     pub fn remove_internal_address(&mut self, internal_addr: u32) {
         self.intranet.remove(&internal_addr);
     }
@@ -261,7 +279,13 @@ impl<const M: usize> NATRouter<M> {
         let mut random_addr;
         let mut random_port;
         'regen: loop {
-            random_addr = paired_addr_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.external_addresses_len);
+            random_addr = paired_addr_idx.unwrap_or_else(|| {
+                if M == 1 {
+                    0
+                } else {
+                    xorshift64star(&mut self.rng) as usize % self.external_addresses_len
+                }
+            });
             random_port = (xorshift64star(&mut self.rng) as usize % self.assigned_external_ports.len()) as u16 + self.assigned_external_ports.start();
             if self.flags & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
@@ -352,7 +376,8 @@ impl<const M: usize> NATRouter<M> {
                             external_dest_port,
                             current_time,
                         );
-                    } else if (self.flags & ADDRESS_DEPENDENT_MAPPING == 0 || addr_match) && (self.flags & PORT_DEPENDENT_MAPPING == 0 || port_match) {
+                    } else if (self.flags & ADDRESS_DEPENDENT_MAPPING == 0 || addr_match) && (self.flags & PORT_DEPENDENT_MAPPING == 0 || port_match)
+                    {
                         previous_mapping.replace((address_idx, Some(route_ex_port)));
                     }
                 }
