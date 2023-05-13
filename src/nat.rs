@@ -55,24 +55,35 @@ struct Entry {
     endpoint_port: u16,
     last_used_time: i64,
 }
-pub struct NATRouter<const FLAGS: u32, const L: usize> {
-    assigned_addresses: [u32; L],
-    map: [Vec<Entry>; L],
+pub struct NATRouter<const M: usize> {
+    external_addresses_len: usize,
+    external_addresses: [u32; M],
+    map: [Vec<Entry>; M],
     intranet: HashMap<u32, usize>,
-    mapping_timeout: i64,
     max_routing_table_len: usize,
     rng: u64,
     assigned_external_ports: RangeInclusive<u16>,
     assigned_internal_addresses: RangeInclusive<u32>,
+    /// This field defines the set of behaviors this NAT will exhibit.
+    /// Some NATs will dynamically change their behavior during runtime in response to arbitrary
+    /// triggers. This classified as a Non-deterministic NAT by rfc4787, and it is awful.
+    /// If you wish to emulate such a behavior then you may mutate this field.
+    pub flags: u32,
+    /// This is the mapping timeout duration for this NAT, an allocated mapping from internal to
+    /// external address will last for at most this long.
+    /// Some NATs may dynamically change this value based on arbitrary network conditions.
+    /// If you wish to emulate such a behavior then you may mutate this field.
+    pub mapping_timeout: i64,
 }
-impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
+impl NATRouter<1> {
     /// Creates a NAT object that has address translation disabled.
     /// This means the NAT will use the same single IP address accross both the internal and
     /// external network. An object created this way is no longer really a NAT, but rather a
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
-    pub fn new_no_address_translation(assigned_address: u32, rng_seed: u64, mapping_timeout: i64) -> Self {
+    pub fn new_no_address_translation(flags: u32, assigned_address: u32, rng_seed: u64, mapping_timeout: i64) -> Self {
         Self::new(
+            flags,
             [assigned_address],
             assigned_address..=assigned_address,
             0..=u16::MAX,
@@ -81,8 +92,26 @@ impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
         )
     }
 }
-impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
+impl<const M: usize> NATRouter<M> {
+    /// Creates a new NAT struct with a total number of external addresses that is less than the constant `M`.
+    /// See `NATRouter::new` for more details.
+    pub fn with_capacity(
+        flags: u32,
+        external_addresses: &[u32],
+        internal_addresses: RangeInclusive<u32>,
+        external_dynamic_ports: RangeInclusive<u16>,
+        rng_seed: u64,
+        mapping_timeout: i64,
+    ) -> Self {
+        debug_assert!(external_addresses.len() <= M, "The external_addresses array must have length less than or equal to M");
+        let mut external_addresses_mem = [0; M];
+        external_addresses_mem[..external_addresses.len()].copy_from_slice(external_addresses);
+        let mut ret = Self::new(flags, external_addresses_mem, internal_addresses, external_dynamic_ports, rng_seed, mapping_timeout);
+        ret.external_addresses_len = external_addresses.len();
+        ret
+    }
     /// Creates a new NAT struct.
+    /// * `flags`: The set of behaviors this NAT should exhibit, see module `flags`.
     /// * `external_addresses`: The list of external IP addresses the NAT is allowed to use.
     /// * `internal_addresses`: The range of internal IP addresses the NAT is allowed to
     ///   assign clients inside of its internal network.
@@ -92,9 +121,10 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
     ///   dynamic ports, internal addresses and external addresses.
     /// * `mapping_timeout`: How long the NAT keeps an address translation mapping open for. It has
     ///   unspecified units, the caller is expected to use the same unit of time for this value as
-    ///   they do for all other `current_time` timestamp values in this library.
+    ///   they do for all other `current_time` timestamps in this library.
     pub fn new(
-        external_addresses: [u32; L],
+        flags: u32,
+        external_addresses: [u32; M],
         internal_addresses: RangeInclusive<u32>,
         external_dynamic_ports: RangeInclusive<u16>,
         rng_seed: u64,
@@ -109,7 +139,8 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
             "The external_dynamic_ports range must be nonempty"
         );
         Self {
-            assigned_addresses: external_addresses,
+            external_addresses_len: external_addresses.len(),
+            external_addresses: external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
             // We need to make sure if port_parity is on the NAT does not crash from not being able
@@ -119,10 +150,11 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
             assigned_external_ports: external_dynamic_ports,
             assigned_internal_addresses: internal_addresses,
             intranet: HashMap::new(),
+            flags,
         }
     }
-    pub fn external_addresses(&self) -> &[u32; L] {
-        &self.assigned_addresses
+    pub fn external_addresses(&self) -> &[u32] {
+        &self.external_addresses[..self.external_addresses_len]
     }
     pub fn internal_addresses(&self) -> &RangeInclusive<u32> {
         &self.assigned_internal_addresses
@@ -138,10 +170,10 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
             if self.intranet.contains_key(&random_addr) {
                 continue;
             }
-            // Randomly assign this connection an external ip addr, we will only use this
+            // Randomly assign this connection an external ip address, we will only use this
             // assigned addr when IP_POOLING_BEHAVIOR_ARBITRARY is false
             self.intranet
-                .insert(random_addr, xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
+                .insert(random_addr, xorshift64star(&mut self.rng) as usize % self.external_addresses_len);
             return random_addr;
         }
     }
@@ -160,7 +192,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
     ) -> DestType {
         if let Some((dest_addr, dest_port)) = self.receive_external_packet(external_addr, external_port, dest_addr, dest_port, false, current_time) {
             // Packet is for an internal recipient. We assume we are doing hairpinning because the caller has already checked `NO_HAIRPINNING`.
-            if FLAGS & INTERNAL_ADDRESS_AND_PORT_HAIRPINNING > 0 {
+            if self.flags & INTERNAL_ADDRESS_AND_PORT_HAIRPINNING > 0 {
                 DestType::Internal {
                     external_src_addr: internal_addr,
                     external_src_port: internal_port,
@@ -175,7 +207,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                     internal_dest_port: dest_port,
                 }
             }
-        } else if self.assigned_addresses.contains(&dest_addr) {
+        } else if self.external_addresses().contains(&dest_addr) {
             // Packet was addressed to our internal using their external addr and was filtered.
             DestType::Drop
         } else {
@@ -186,9 +218,9 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         }
     }
     fn select_inet_address(&mut self, paired_addr_idx: Option<usize>, src_port: u16) -> (usize, u16) {
-        if FLAGS & NO_PORT_PRESERVATION == 0 {
-            let mut addr_perm: [usize; L] = std::array::from_fn(|i| i);
-            let mut addr_perm_len = self.assigned_addresses.len();
+        if self.flags & NO_PORT_PRESERVATION == 0 {
+            let mut addr_perm: [usize; M] = std::array::from_fn(|i| i);
+            let mut addr_perm_len = self.external_addresses_len;
             if let Some(idx) = paired_addr_idx {
                 // If this NAT has the behavior of "Paired" then we may only consider
                 // the paired address.
@@ -210,10 +242,10 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                 }
                 return (*external_address_idx, src_port);
             }
-            if FLAGS & PORT_PRESERVATION_OVERLOAD > 0 {
+            if self.flags & PORT_PRESERVATION_OVERLOAD > 0 {
                 // src_port is currently used by all of our IP addresses, so overload that port.
                 return (addr_perm[0], src_port);
-            } else if FLAGS & PORT_PRESERVATION_OVERRIDE > 0 {
+            } else if self.flags & PORT_PRESERVATION_OVERRIDE > 0 {
                 let routing_table = &mut self.map[addr_perm[0]];
                 for i in 0..routing_table.len() {
                     if routing_table[i].external_port == src_port {
@@ -229,9 +261,9 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         let mut random_addr;
         let mut random_port;
         'regen: loop {
-            random_addr = paired_addr_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.assigned_addresses.len());
+            random_addr = paired_addr_idx.unwrap_or_else(|| xorshift64star(&mut self.rng) as usize % self.external_addresses_len);
             random_port = (xorshift64star(&mut self.rng) as usize % self.assigned_external_ports.len()) as u16 + self.assigned_external_ports.start();
-            if FLAGS & NO_PORT_PARITY == 0 {
+            if self.flags & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
                 random_port = (random_port & !1u16) | (src_port & 1u16);
             }
@@ -278,11 +310,11 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                 internal_dest_addr: external_dest_addr,
                 internal_dest_port: external_dest_port,
             };
-        } else if FLAGS & NO_HAIRPINNING > 0 && self.assigned_addresses.contains(&external_dest_addr) {
+        } else if self.flags & NO_HAIRPINNING > 0 && self.external_addresses().contains(&external_dest_addr) {
             return DestType::Drop;
         }
         let mut previous_mapping = if let Some(external_src_addr_idx) = self.intranet.get(&internal_src_addr) {
-            if FLAGS & IP_POOLING_BEHAVIOR_ARBITRARY > 0 {
+            if self.flags & IP_POOLING_BEHAVIOR_ARBITRARY > 0 {
                 None
             } else {
                 Some((*external_src_addr_idx, None))
@@ -292,7 +324,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         };
 
         let expiry = current_time - self.mapping_timeout;
-        for address_idx in 0..self.assigned_addresses.len() {
+        for address_idx in 0..self.external_addresses_len {
             let routing_table = &mut self.map[address_idx];
             let mut oldest_time = i64::MAX;
             let mut oldest_idx = 0;
@@ -307,10 +339,10 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                     let port_match = route.endpoint_port == external_dest_port;
                     let route_ex_port = route.external_port;
                     if addr_match && port_match {
-                        if FLAGS & OUTBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
+                        if self.flags & OUTBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
                             route.last_used_time = current_time;
                         }
-                        let route_ex_addr = self.assigned_addresses[address_idx];
+                        let route_ex_addr = self.external_addresses[address_idx];
                         return self.remap(
                             internal_src_addr,
                             internal_src_port,
@@ -320,7 +352,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                             external_dest_port,
                             current_time,
                         );
-                    } else if (FLAGS & ADDRESS_DEPENDENT_MAPPING == 0 || addr_match) && (FLAGS & PORT_DEPENDENT_MAPPING == 0 || port_match) {
+                    } else if (self.flags & ADDRESS_DEPENDENT_MAPPING == 0 || addr_match) && (self.flags & PORT_DEPENDENT_MAPPING == 0 || port_match) {
                         previous_mapping.replace((address_idx, Some(route_ex_port)));
                     }
                 }
@@ -343,7 +375,7 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                 self.select_inet_address(previous_mapping.map(|a| a.0), internal_src_port)
             }
         };
-        let external_addr = self.assigned_addresses[external_address_idx];
+        let external_addr = self.external_addresses[external_address_idx];
         self.map[external_address_idx].push(Entry {
             internal_addr: internal_src_addr,
             internal_port: internal_src_port,
@@ -390,8 +422,8 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
         current_time: i64,
     ) -> Option<(u32, u16)> {
         let mut dest_address_idx = usize::MAX;
-        for i in 0..self.assigned_addresses.len() {
-            if self.assigned_addresses[i] == external_dest_addr {
+        for i in 0..self.external_addresses_len {
+            if self.external_addresses[i] == external_dest_addr {
                 dest_address_idx = i;
                 break;
             }
@@ -412,14 +444,14 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
                 continue;
             } else if route.external_port == external_dest_port {
                 if disable_filtering
-                    || ((FLAGS & ADDRESS_DEPENDENT_FILTERING == 0 || route.endpoint_addr == external_src_addr)
-                        && (FLAGS & PORT_DEPENDENT_FILTERING == 0 || route.endpoint_port == external_src_port))
+                    || ((self.flags & ADDRESS_DEPENDENT_FILTERING == 0 || route.endpoint_addr == external_src_addr)
+                        && (self.flags & PORT_DEPENDENT_FILTERING == 0 || route.endpoint_port == external_src_port))
                 {
-                    if FLAGS & INBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
+                    if self.flags & INBOUND_REFRESH_BEHAVIOR_FALSE == 0 {
                         route.last_used_time = current_time;
                     }
                     return Some((route.internal_addr, route.internal_port));
-                } else if FLAGS & FILTERED_INBOUND_DESTROYS_MAPPING > 0 {
+                } else if self.flags & FILTERED_INBOUND_DESTROYS_MAPPING > 0 {
                     needs_destruction = true;
                 }
             }

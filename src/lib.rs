@@ -18,7 +18,7 @@ mod examples {
         let client_port = 17;
         let server_addr = 22222;
         let server_port = 80;
-        let mut firewall = NATRouter::<STATEFUL_FIREWALL, 1>::new_no_address_translation(client_addr, 12, timeout);
+        let mut firewall = NATRouter::new_no_address_translation(STATEFUL_FIREWALL, client_addr, 12, timeout);
         assert_eq!(firewall.assign_internal_address(), client_addr);
 
         time += 100;
@@ -59,7 +59,7 @@ mod examples {
         let server0_addr = 22222;
         let server1_addr = 33333;
         let server_port = 80;
-        let mut firewall = NATRouter::<RESTRICTED_FIREWALL, 1>::new_no_address_translation(client_addr, 12, timeout);
+        let mut firewall = NATRouter::new_no_address_translation(RESTRICTED_FIREWALL, client_addr, 12, timeout);
         assert_eq!(firewall.assign_internal_address(), client_addr);
 
         time += 100;
@@ -83,7 +83,7 @@ mod examples {
         let server_addr = 22222;
         let server0_port = 80;
         let server1_port = 17;
-        let mut firewall = NATRouter::<PORT_RESTRICTED_FIREWALL, 1>::new_no_address_translation(client_addr, 12, timeout);
+        let mut firewall = NATRouter::new_no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, 12, timeout);
 
         assert_eq!(firewall.assign_internal_address(), client_addr);
 
@@ -103,7 +103,7 @@ mod examples {
         let timeout = 1000 * 60 * 2;
 
         let nat_ex_addr = 11111;
-        let mut nat = NATRouter::<EASY_NAT, 1>::new([nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+        let mut nat = NATRouter::new(EASY_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
         let client_in_addr = nat.assign_internal_address();
         let client_in_port = 17;
         let server_ex_addr = 22222;
@@ -145,7 +145,7 @@ mod examples {
         let timeout = 1000 * 60 * 2;
 
         let nat_ex_addr = 11111;
-        let mut nat = NATRouter::<FULL_CONE_NAT, 1>::new([nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+        let mut nat = NATRouter::new(FULL_CONE_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
         let client_in_addr = nat.assign_internal_address();
         let client_in_port = 17;
         let server_ex_addr = 22222;
@@ -175,7 +175,7 @@ mod examples {
         let timeout = 1000 * 60 * 2;
 
         let nat_ex_addr = 11111;
-        let mut nat = NATRouter::<SYMMETRIC_NAT, 1>::new([nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+        let mut nat = NATRouter::new(SYMMETRIC_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
         let client_in_addr = nat.assign_internal_address();
         let client_in_port = 17;
         let server_ex_addr = 22222;
@@ -214,7 +214,7 @@ mod examples {
         let mut time = 100;
         let timeout = 1000 * 60 * 2;
 
-        let mut nat = NATRouter::<HARD_NAT, 4>::new([11110, 11111, 11112, 11113], 90000..=99999, 49152..=u16::MAX, 245, timeout);
+        let mut nat = NATRouter::new(HARD_NAT, [11110, 11111, 11112, 11113], 90000..=99999, 49152..=u16::MAX, 245, timeout);
         let client_in_addr = nat.assign_internal_address();
         let client_in_port = 17;
         let server_ex_addr = 22222;
@@ -263,7 +263,7 @@ mod examples {
         let timeout = 1000 * 60 * 2;
 
         let nat_ex_addr = 11111;
-        let mut nat = NATRouter::<MISBEHAVING_NAT, 1>::new([nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 245, timeout);
+        let mut nat = NATRouter::new(MISBEHAVING_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 245, timeout);
 
         let client_in_addr = nat.assign_internal_address();
         let client_in_port = 17;
