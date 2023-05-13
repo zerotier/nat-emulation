@@ -83,10 +83,10 @@ impl<const FLAGS: u32> NATRouter<FLAGS, 1> {
 }
 impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
     /// Creates a new NAT struct.
-    /// * `assigned_external_addresses`: The list of external IP addresses the NAT is allowed to use.
-    /// * `assigned_internal_addresses`: The range of internal IP addresses the NAT is allowed to
+    /// * `external_addresses`: The list of external IP addresses the NAT is allowed to use.
+    /// * `internal_addresses`: The range of internal IP addresses the NAT is allowed to
     ///   assign clients inside of its internal network.
-    /// * `assigned_external_ports`: The list of dynamic ports that the NAT is allowed to use on the
+    /// * `external_dynamic_ports`: The list of dynamic ports that the NAT is allowed to use on the
     ///   external network. The NAT may use ports outside of this range for port preservation.
     /// * `rng_seed`: Deterministic seed for the NAT's random number generator used for generating
     ///   dynamic ports, internal addresses and external addresses.
@@ -94,35 +94,41 @@ impl<const FLAGS: u32, const L: usize> NATRouter<FLAGS, L> {
     ///   unspecified units, the caller is expected to use the same unit of time for this value as
     ///   they do for all other `current_time` timestamp values in this library.
     pub fn new(
-        assigned_external_addresses: [u32; L],
-        assigned_internal_addresses: RangeInclusive<u32>,
-        assigned_external_ports: RangeInclusive<u16>,
+        external_addresses: [u32; L],
+        internal_addresses: RangeInclusive<u32>,
+        external_dynamic_ports: RangeInclusive<u16>,
         rng_seed: u64,
         mapping_timeout: i64,
     ) -> Self {
         debug_assert!(
-            assigned_internal_addresses.start() <= assigned_internal_addresses.end(),
-            "The assigned_internal_addresses range must be nonempty"
+            internal_addresses.start() <= internal_addresses.end(),
+            "The internal_addresses range must be nonempty"
         );
         debug_assert!(
-            assigned_external_ports.start() <= assigned_external_ports.end(),
-            "The assigned_external_ports range must be nonempty"
+            external_dynamic_ports.start() <= external_dynamic_ports.end(),
+            "The external_dynamic_ports range must be nonempty"
         );
         Self {
-            assigned_addresses: assigned_external_addresses,
+            assigned_addresses: external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
             // We need to make sure if port_parity is on the NAT does not crash from not being able
             // to generate a unique port.
-            max_routing_table_len: assigned_external_ports.len() * 2 / 5,
+            max_routing_table_len: external_dynamic_ports.len() * 2 / 5,
             rng: rng_seed,
-            assigned_external_ports,
-            assigned_internal_addresses,
+            assigned_external_ports: external_dynamic_ports,
+            assigned_internal_addresses: internal_addresses,
             intranet: HashMap::new(),
         }
     }
-    pub fn assigned_addresses(&self) -> &[u32; L] {
+    pub fn external_addresses(&self) -> &[u32; L] {
         &self.assigned_addresses
+    }
+    pub fn internal_addresses(&self) -> &RangeInclusive<u32> {
+        &self.assigned_internal_addresses
+    }
+    pub fn external_dynamic_ports(&self) -> &RangeInclusive<u16> {
+        &self.assigned_external_ports
     }
     pub fn assign_internal_address(&mut self) -> u32 {
         // Instead of dealing with u32 overflow we just cast up to a u64 and sidestep the problem.
