@@ -108,6 +108,7 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::STATEFUL_FIREWALL;
     /// use nat_emulation::{DestType, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
@@ -115,7 +116,7 @@ pub mod predefines {
     /// let client_port = 17;
     /// let server_addr = 22222;
     /// let server_port = 80;
-    /// let mut firewall = NATRouter::new_no_address_translation(STATEFUL_FIREWALL, client_addr, 12, timeout);
+    /// let mut firewall = NATRouter::new_no_address_translation(STATEFUL_FIREWALL, client_addr, rng, timeout);
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
@@ -148,6 +149,7 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::RESTRICTED_FIREWALL;
     /// use nat_emulation::NATRouter;
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
@@ -156,7 +158,7 @@ pub mod predefines {
     /// let server0_addr = 22222;
     /// let server1_addr = 33333;
     /// let server_port = 80;
-    /// let mut firewall = NATRouter::new_no_address_translation(RESTRICTED_FIREWALL, client_addr, 12, timeout);
+    /// let mut firewall = NATRouter::new_no_address_translation(RESTRICTED_FIREWALL, client_addr, rng, timeout);
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
@@ -174,6 +176,7 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::PORT_RESTRICTED_FIREWALL;
     /// use nat_emulation::NATRouter;
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
@@ -182,7 +185,7 @@ pub mod predefines {
     /// let server_addr = 22222;
     /// let server0_port = 80;
     /// let server1_port = 17;
-    /// let mut firewall = NATRouter::new_no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, 12, timeout);
+    /// let mut firewall = NATRouter::new_no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, rng, timeout);
     ///
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
@@ -198,17 +201,18 @@ pub mod predefines {
     /// Equivalent to: `PORT_RESTRICTED_FIREWALL | PORT_PRESERVATION_OVERLOAD`
     pub const MISBEHAVING_FIREWALL: u32 = PORT_RESTRICTED_FIREWALL | PORT_PRESERVATION_OVERLOAD;
 
-    /// Equivalent to: `0u32`
+    /// Equivalent to not setting any flags: `0u32`
     ///
     /// # Example
     /// ```
     /// use nat_emulation::predefines::EASY_NAT;
     /// use nat_emulation::{DestType, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = NATRouter::new(EASY_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+    /// let mut nat = NATRouter::new(EASY_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
     /// let client_in_addr = nat.assign_internal_address();
     /// let client_in_port = 17;
     /// let server_ex_addr = 22222;
@@ -250,11 +254,12 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::FULL_CONE_NAT;
     /// use nat_emulation::{DestType, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = NATRouter::new(FULL_CONE_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+    /// let mut nat = NATRouter::new(FULL_CONE_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
     /// let client_in_addr = nat.assign_internal_address();
     /// let client_in_port = 17;
     /// let server_ex_addr = 22222;
@@ -287,11 +292,12 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::SYMMETRIC_NAT;
     /// use nat_emulation::{DestType::*, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = NATRouter::new(SYMMETRIC_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 12, timeout);
+    /// let mut nat = NATRouter::new(SYMMETRIC_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
     /// let client_in_addr = nat.assign_internal_address();
     /// let client_in_port = 17;
     /// let server_ex_addr = 22222;
@@ -330,10 +336,11 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::HARD_NAT;
     /// use nat_emulation::{DestType::*, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
-    /// let mut nat = NATRouter::new(HARD_NAT, [11110, 11111, 11112, 11113], 90000..=99999, 49152..=u16::MAX, 245, timeout);
+    /// let mut nat = NATRouter::new(HARD_NAT, [11110, 11111, 11112, 11113], 90000..=99999, 49152..=u16::MAX, rng, timeout);
     /// let client_in_addr = nat.assign_internal_address();
     /// let client_in_port = 17;
     /// let server_ex_addr = 22222;
@@ -356,11 +363,10 @@ pub mod predefines {
     ///     ) => {
     ///         // With an IP pooling behavior of "Arbitrary" we are no longer guaranteed to the
     ///         // same external IP every time.
-    ///         // There is a 1/4 probability that we randomly do get the same external IP but under
-    ///         // this rng seed that doesn't happen.
+    ///         // We could randomly get the same external IP but under this rng that doesn't happen.
     ///         assert!(ex_src_addr0 != ex_src_addr1);
     ///         // Since we have different addresses there is a miniscule chance we could randomly
-    ///         // get the same port, but under this rng seed that doesn't happen.
+    ///         // get the same port, but under this rng that doesn't happen.
     ///         assert!(ex_src_port0 != ex_src_port1);
     ///
     ///         time += 100;
@@ -380,11 +386,12 @@ pub mod predefines {
     /// ```
     /// use nat_emulation::predefines::MISBEHAVING_NAT;
     /// use nat_emulation::{DestType, NATRouter};
+    /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = NATRouter::new(MISBEHAVING_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, 245, timeout);
+    /// let mut nat = NATRouter::new(MISBEHAVING_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
     ///
     /// let client_in_addr = nat.assign_internal_address();
     /// let client_in_port = 17;

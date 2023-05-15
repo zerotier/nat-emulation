@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
+use rand::RngCore;
+
 use crate::flags::*;
-use crate::rng::xorshift64star;
 
 pub enum DestType {
     External {
@@ -55,13 +56,13 @@ struct Entry {
     endpoint_port: u16,
     last_used_time: i64,
 }
-pub struct NATRouter<const M: usize> {
+pub struct NATRouter<R: RngCore, const M: usize> {
     external_addresses_len: usize,
     external_addresses: [u32; M],
     map: [Vec<Entry>; M],
     intranet: HashMap<u32, usize>,
     max_routing_table_len: usize,
-    rng: u64,
+    rng: R,
     assigned_external_ports: RangeInclusive<u16>,
     assigned_internal_addresses: RangeInclusive<u32>,
     /// This field defines the set of behaviors this NAT will exhibit.
@@ -75,24 +76,24 @@ pub struct NATRouter<const M: usize> {
     /// If you wish to emulate such a behavior then you may mutate this field.
     pub mapping_timeout: i64,
 }
-impl NATRouter<1> {
+impl<R: RngCore> NATRouter<R, 1> {
     /// Creates a NAT object that has address translation disabled.
     /// This means the NAT will use the same single IP address accross both the internal and
     /// external network. An object created this way is no longer really a NAT, but rather a
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
-    pub fn new_no_address_translation(flags: u32, assigned_address: u32, rng_seed: u64, mapping_timeout: i64) -> Self {
+    pub fn new_no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_timeout: i64) -> Self {
         Self::new(
             flags,
             [assigned_address],
             assigned_address..=assigned_address,
             0..=u16::MAX,
-            rng_seed,
+            rng,
             mapping_timeout,
         )
     }
 }
-impl<const M: usize> NATRouter<M> {
+impl<R: RngCore, const M: usize> NATRouter<R, M> {
     /// Creates a new NAT struct with a total number of external addresses that is less than the constant `M`.
     /// See `NATRouter::new` for more details.
     pub fn with_capacity(
@@ -100,7 +101,7 @@ impl<const M: usize> NATRouter<M> {
         external_addresses: &[u32],
         internal_addresses: RangeInclusive<u32>,
         external_dynamic_ports: RangeInclusive<u16>,
-        rng_seed: u64,
+        rng: R,
         mapping_timeout: i64,
     ) -> Self {
         debug_assert!(
@@ -114,7 +115,7 @@ impl<const M: usize> NATRouter<M> {
             external_addresses_mem,
             internal_addresses,
             external_dynamic_ports,
-            rng_seed,
+            rng,
             mapping_timeout,
         );
         ret.external_addresses_len = external_addresses.len();
@@ -137,7 +138,7 @@ impl<const M: usize> NATRouter<M> {
         external_addresses: [u32; M],
         internal_addresses: RangeInclusive<u32>,
         external_dynamic_ports: RangeInclusive<u16>,
-        rng_seed: u64,
+        rng: R,
         mapping_timeout: i64,
     ) -> Self {
         debug_assert!(
@@ -156,7 +157,7 @@ impl<const M: usize> NATRouter<M> {
             // We need to make sure if port_parity is on the NAT does not crash from not being able
             // to generate a unique port.
             max_routing_table_len: external_dynamic_ports.len() * 2 / 5,
-            rng: rng_seed,
+            rng,
             assigned_external_ports: external_dynamic_ports,
             assigned_internal_addresses: internal_addresses,
             intranet: HashMap::new(),
@@ -177,9 +178,13 @@ impl<const M: usize> NATRouter<M> {
     }
     pub fn assign_internal_address(&mut self) -> u32 {
         // Instead of dealing with u32 overflow we just cast up to a u64 and sidestep the problem.
-        let addr_len = *self.assigned_internal_addresses.end() as u64 - *self.assigned_internal_addresses.start() as u64 + 1;
+        let addr_len = *self.assigned_internal_addresses.end() - *self.assigned_internal_addresses.start();
         loop {
-            let random_addr = (xorshift64star(&mut self.rng) % addr_len) as u32 + self.assigned_internal_addresses.start();
+            let random_addr = if addr_len == u32::MAX {
+                self.rng.next_u32()
+            } else {
+                (self.rng.next_u32() % (addr_len + 1)) + self.assigned_internal_addresses.start()
+            };
             if self.intranet.contains_key(&random_addr) {
                 continue;
             }
@@ -188,7 +193,7 @@ impl<const M: usize> NATRouter<M> {
             let ex_addr_idx = if M == 1 {
                 0
             } else {
-                xorshift64star(&mut self.rng) as usize % self.external_addresses_len
+                (self.rng.next_u64() as usize) % self.external_addresses_len
             };
             self.intranet.insert(random_addr, ex_addr_idx);
             return random_addr;
@@ -248,7 +253,7 @@ impl<const M: usize> NATRouter<M> {
                 // If this NAT has the behavior of "Arbitrary" then we want to randomly
                 // choose which addr to assign to this route.
                 for i in (1..addr_perm_len).rev() {
-                    addr_perm.swap(i, xorshift64star(&mut self.rng) as usize % (i + 1))
+                    addr_perm.swap(i, self.rng.next_u64() as usize % (i + 1))
                 }
             }
             'next_addr: for external_address_idx in &addr_perm[..addr_perm_len] {
@@ -283,10 +288,10 @@ impl<const M: usize> NATRouter<M> {
                 if M == 1 {
                     0
                 } else {
-                    xorshift64star(&mut self.rng) as usize % self.external_addresses_len
+                    self.rng.next_u64() as usize % self.external_addresses_len
                 }
             });
-            random_port = (xorshift64star(&mut self.rng) as usize % self.assigned_external_ports.len()) as u16 + self.assigned_external_ports.start();
+            random_port = (self.rng.next_u32() % self.assigned_external_ports.len() as u32) as u16 + self.assigned_external_ports.start();
             if self.flags & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
                 random_port = (random_port & !1u16) | (src_port & 1u16);
