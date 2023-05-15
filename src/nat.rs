@@ -76,6 +76,7 @@ impl<R: RngCore> Nat<R, 1> {
     /// external network. An object created this way is no longer really a NAT, but rather a
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
+    #[inline]
     pub fn no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_timeout: i64) -> Self {
         Self::new(
             flags,
@@ -90,6 +91,7 @@ impl<R: RngCore> Nat<R, 1> {
 impl<R: RngCore, const M: usize> Nat<R, M> {
     /// Creates a new NAT struct with a total number of external addresses that is less than the constant `M`.
     /// See `Nat::new` for more details.
+    #[inline]
     pub fn with_capacity(
         flags: u32,
         external_addresses: &[u32],
@@ -127,6 +129,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
     /// * `mapping_timeout`: How long the NAT keeps an address translation mapping open for. It has
     ///   unspecified units, the caller is expected to use the same unit of time for this value as
     ///   they do for all other `current_time` timestamps in this library.
+    #[inline]
     pub fn new(
         flags: u32,
         external_addresses: [u32; M],
