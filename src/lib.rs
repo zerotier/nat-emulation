@@ -18,7 +18,7 @@ mod examples {
         let client_port = 17;
         let server_addr = 22222;
         let server_port = 80;
-        let mut firewall = Nat::new_no_address_translation(STATEFUL_FIREWALL, client_addr, rng, timeout);
+        let mut firewall = Nat::no_address_translation(STATEFUL_FIREWALL, client_addr, rng, timeout);
         assert_eq!(firewall.assign_internal_address(), client_addr);
 
         time += 100;
@@ -60,7 +60,7 @@ mod examples {
         let server0_addr = 22222;
         let server1_addr = 33333;
         let server_port = 80;
-        let mut firewall = Nat::new_no_address_translation(RESTRICTED_FIREWALL, client_addr, rng, timeout);
+        let mut firewall = Nat::no_address_translation(RESTRICTED_FIREWALL, client_addr, rng, timeout);
         assert_eq!(firewall.assign_internal_address(), client_addr);
 
         time += 100;
@@ -85,7 +85,7 @@ mod examples {
         let server_addr = 22222;
         let server0_port = 80;
         let server1_port = 17;
-        let mut firewall = Nat::new_no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, rng, timeout);
+        let mut firewall = Nat::no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, rng, timeout);
 
         assert_eq!(firewall.assign_internal_address(), client_addr);
 

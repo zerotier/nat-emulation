@@ -82,7 +82,7 @@ impl<R: RngCore> Nat<R, 1> {
     /// external network. An object created this way is no longer really a NAT, but rather a
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
-    pub fn new_no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_timeout: i64) -> Self {
+    pub fn no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_timeout: i64) -> Self {
         Self::new(
             flags,
             [assigned_address],
