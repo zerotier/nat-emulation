@@ -21,29 +21,23 @@ pub enum DestType {
 impl DestType {
     #[inline]
     pub fn is_external(&self) -> bool {
-        use DestType::*;
         match self {
-            External { .. } => true,
-            Internal { .. } => false,
-            Drop => false,
+            DestType::External { .. } => true,
+            _ => false,
         }
     }
     #[inline]
     pub fn is_internal(&self) -> bool {
-        use DestType::*;
         match self {
-            External { .. } => false,
-            Internal { .. } => true,
-            Drop => false,
+            DestType::Internal { .. } => true,
+            _ => false,
         }
     }
     #[inline]
     pub fn is_drop(&self) -> bool {
-        use DestType::*;
         match self {
-            External { .. } => false,
-            Internal { .. } => false,
-            Drop => true,
+            DestType::Drop => true,
+            _ => false,
         }
     }
 }
