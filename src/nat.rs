@@ -237,6 +237,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             }
         }
     }
+    #[inline]
     fn select_inet_address(&mut self, paired_addr_idx: Option<usize>, src_port: u16) -> (usize, u16) {
         if self.flags & NO_PORT_PRESERVATION == 0 {
             let mut addr_perm: [usize; M] = std::array::from_fn(|i| i);
