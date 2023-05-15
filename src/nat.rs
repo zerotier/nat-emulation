@@ -56,7 +56,7 @@ struct Entry {
     endpoint_port: u16,
     last_used_time: i64,
 }
-pub struct NATRouter<R: RngCore, const M: usize> {
+pub struct Nat<R: RngCore, const M: usize> {
     external_addresses_len: usize,
     external_addresses: [u32; M],
     map: [Vec<Entry>; M],
@@ -76,7 +76,7 @@ pub struct NATRouter<R: RngCore, const M: usize> {
     /// If you wish to emulate such a behavior then you may mutate this field.
     pub mapping_timeout: i64,
 }
-impl<R: RngCore> NATRouter<R, 1> {
+impl<R: RngCore> Nat<R, 1> {
     /// Creates a NAT object that has address translation disabled.
     /// This means the NAT will use the same single IP address accross both the internal and
     /// external network. An object created this way is no longer really a NAT, but rather a
@@ -93,9 +93,9 @@ impl<R: RngCore> NATRouter<R, 1> {
         )
     }
 }
-impl<R: RngCore, const M: usize> NATRouter<R, M> {
+impl<R: RngCore, const M: usize> Nat<R, M> {
     /// Creates a new NAT struct with a total number of external addresses that is less than the constant `M`.
-    /// See `NATRouter::new` for more details.
+    /// See `Nat::new` for more details.
     pub fn with_capacity(
         flags: u32,
         external_addresses: &[u32],
