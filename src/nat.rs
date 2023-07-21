@@ -55,7 +55,6 @@ pub struct Nat<R: RngCore, const M: usize> {
     external_addresses: [u32; M],
     map: [Vec<Entry>; M],
     intranet: HashMap<u32, usize>,
-    max_routing_table_len: usize,
     rng: R,
     assigned_external_ports: RangeInclusive<u16>,
     assigned_internal_addresses: RangeInclusive<u32>,
@@ -151,9 +150,6 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             external_addresses: external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
             mapping_timeout,
-            // We need to make sure if port_parity is on the NAT does not crash from not being able
-            // to generate a unique port.
-            max_routing_table_len: external_dynamic_ports.len() * 2 / 5,
             rng,
             assigned_external_ports: external_dynamic_ports,
             assigned_internal_addresses: internal_addresses,
@@ -281,7 +277,9 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         // If we can't do any port preservation we have to randomly generate the port and address
         let mut random_addr;
         let mut random_port;
+        let mut attempt_until_force = 8;
         'regen: loop {
+            attempt_until_force -= 1;
             random_addr = paired_addr_idx.unwrap_or_else(|| {
                 if M == 1 {
                     0
@@ -294,9 +292,15 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
                 // Force the port to have the same parity as the src_port.
                 random_port = (random_port & !1u16) | (src_port & 1u16);
             }
-            for route in &self.map[random_addr] {
-                if route.external_port == random_port {
-                    continue 'regen;
+            let routing_table = &mut self.map[random_addr];
+            for i in 0..routing_table.len() {
+                if routing_table[i].external_port == random_port {
+                    if attempt_until_force > 0 {
+                        continue 'regen;
+                    }
+                    // Remove this mapping so our random port is unique.
+                    routing_table.swap_remove(i);
+                    break;
                 }
             }
             break;
@@ -353,8 +357,6 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         let expiry = current_time - self.mapping_timeout;
         for address_idx in 0..self.external_addresses_len {
             let routing_table = &mut self.map[address_idx];
-            let mut oldest_time = i64::MAX;
-            let mut oldest_idx = 0;
             let mut i = 0;
             while i < routing_table.len() {
                 let route = &mut routing_table[i];
@@ -384,14 +386,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
                         previous_mapping.replace((address_idx, Some(route_ex_port)));
                     }
                 }
-                if oldest_time >= route.last_used_time {
-                    oldest_time = route.last_used_time;
-                    oldest_idx = i;
-                }
                 i += 1;
-            }
-            if routing_table.len() >= self.max_routing_table_len {
-                routing_table.swap_remove(oldest_idx);
             }
         }
         let (external_address_idx, external_port) = {
