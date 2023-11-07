@@ -1,6 +1,6 @@
 [package]
 name = "nat_emulation"
-version = "0.0.2"
+version = "1.0.0"
 authors = ["Monica Moniot"]
 edition = "2021"
 

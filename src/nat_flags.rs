@@ -95,6 +95,10 @@ pub mod flags {
     ///
     /// This flag has no effect if `NO_PORT_PRESERVATION` is true.
     pub const PORT_PRESERVATION_OVERLOAD: u32 = 1 << 13;
+    /// By default, if a source port number is in the "well-known" port range, then the NAT will
+    /// attempt to generate a source port which is also in this range.
+    /// If true, the NAT will not do this.
+    pub const NO_WELL_KNOWN_PRESERVATION: u32 = 1 << 14;
 }
 /// This is a set of pre-defined flags for common NAT types. Each constant represents some
 /// common NAT or firewall types one might want to emulate with this library. These are provided for
@@ -116,7 +120,7 @@ pub mod predefines {
     /// let client_port = 17;
     /// let server_addr = 22222;
     /// let server_port = 80;
-    /// let mut firewall = Nat::no_address_translation(STATEFUL_FIREWALL, client_addr, rng, timeout);
+    /// let mut firewall = Nat::no_address_translation(STATEFUL_FIREWALL, client_addr, rng, usize::MAX, timeout);
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
@@ -158,7 +162,7 @@ pub mod predefines {
     /// let server0_addr = 22222;
     /// let server1_addr = 33333;
     /// let server_port = 80;
-    /// let mut firewall = Nat::no_address_translation(RESTRICTED_FIREWALL, client_addr, rng, timeout);
+    /// let mut firewall = Nat::no_address_translation(RESTRICTED_FIREWALL, client_addr, rng, usize::MAX, timeout);
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
     /// time += 100;
@@ -185,7 +189,7 @@ pub mod predefines {
     /// let server_addr = 22222;
     /// let server0_port = 80;
     /// let server1_port = 17;
-    /// let mut firewall = Nat::no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, rng, timeout);
+    /// let mut firewall = Nat::no_address_translation(PORT_RESTRICTED_FIREWALL, client_addr, rng, usize::MAX, timeout);
     ///
     /// assert_eq!(firewall.assign_internal_address(), client_addr);
     ///
@@ -206,15 +210,15 @@ pub mod predefines {
     /// # Example
     /// ```
     /// use nat_emulation::predefines::EASY_NAT;
-    /// use nat_emulation::{DestType, Nat};
+    /// use nat_emulation::{port_ranges::PRIVATE, DestType, Nat};
     /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = Nat::new(EASY_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
+    /// let mut nat = Nat::new(EASY_NAT, [nat_ex_addr], 90000..=99999, PRIVATE, rng, usize::MAX, timeout);
     /// let client_in_addr = nat.assign_internal_address();
-    /// let client_in_port = 17;
+    /// let client_in_port = 25565;
     /// let server_ex_addr = 22222;
     /// let server_ex_port = 80;
     ///
@@ -253,15 +257,15 @@ pub mod predefines {
     /// # Example
     /// ```
     /// use nat_emulation::predefines::FULL_CONE_NAT;
-    /// use nat_emulation::{DestType, Nat};
+    /// use nat_emulation::{port_ranges::PRIVATE, DestType, Nat};
     /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = Nat::new(FULL_CONE_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
+    /// let mut nat = Nat::new(FULL_CONE_NAT, [nat_ex_addr], 90000..=99999, PRIVATE, rng, usize::MAX, timeout);
     /// let client_in_addr = nat.assign_internal_address();
-    /// let client_in_port = 17;
+    /// let client_in_port = 25565;
     /// let server_ex_addr = 22222;
     /// let server_ex_port = 80;
     ///
@@ -291,15 +295,15 @@ pub mod predefines {
     /// # Example
     /// ```
     /// use nat_emulation::predefines::SYMMETRIC_NAT;
-    /// use nat_emulation::{DestType::*, Nat};
+    /// use nat_emulation::{port_ranges::PRIVATE, DestType::*, Nat};
     /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = Nat::new(SYMMETRIC_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
+    /// let mut nat = Nat::new(SYMMETRIC_NAT, [nat_ex_addr], 90000..=99999, PRIVATE, rng, usize::MAX, timeout);
     /// let client_in_addr = nat.assign_internal_address();
-    /// let client_in_port = 17;
+    /// let client_in_port = 25565;
     /// let server_ex_addr = 22222;
     /// let server_ex_port0 = 80;
     /// let server_ex_port1 = 17;
@@ -331,18 +335,18 @@ pub mod predefines {
     /// ```
     pub const SYMMETRIC_NAT: u32 = PORT_RESTRICTED_CONE_NAT | ADDRESS_AND_PORT_DEPENDENT_MAPPING;
 
-    /// Equivalent to: `SYMMETRIC_NAT | IP_POOLING_BEHAVIOR_ARBITRARY | INBOUND_REFRESH_BEHAVIOR_FALSE | NO_PORT_PARITY`
+    /// Equivalent to: `SYMMETRIC_NAT | IP_POOLING_BEHAVIOR_ARBITRARY | INBOUND_REFRESH_BEHAVIOR_FALSE | NO_PORT_PARITY | NO_WELL_KNOWN_PRESERVATION`
     /// # Example
     /// ```
     /// use nat_emulation::predefines::HARD_NAT;
-    /// use nat_emulation::{DestType::*, Nat};
+    /// use nat_emulation::{port_ranges::PRIVATE, DestType::*, Nat};
     /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
-    /// let mut nat = Nat::new(HARD_NAT, [11110, 11111, 11112, 11113], 90000..=99999, 49152..=u16::MAX, rng, timeout);
+    /// let mut nat = Nat::new(HARD_NAT, [11110, 11111, 11112, 11113], 90000..=99999, PRIVATE, rng, usize::MAX, timeout);
     /// let client_in_addr = nat.assign_internal_address();
-    /// let client_in_port = 17;
+    /// let client_in_port = 25565;
     /// let server_ex_addr = 22222;
     /// let server_ex_port0 = 80;
     /// let server_ex_port1 = 17;
@@ -380,21 +384,22 @@ pub mod predefines {
     ///     _ => assert!(false),
     /// }
     /// ```
-    pub const HARD_NAT: u32 = SYMMETRIC_NAT | IP_POOLING_BEHAVIOR_ARBITRARY | INBOUND_REFRESH_BEHAVIOR_FALSE | NO_PORT_PARITY;
+    pub const HARD_NAT: u32 =
+        SYMMETRIC_NAT | IP_POOLING_BEHAVIOR_ARBITRARY | INBOUND_REFRESH_BEHAVIOR_FALSE | NO_PORT_PARITY | NO_WELL_KNOWN_PRESERVATION;
     /// Equivalent to: `HARD_NAT | INTERNAL_ADDRESS_AND_PORT_HAIRPINNING | OUTBOUND_REFRESH_BEHAVIOR_FALSE | FILTERED_INBOUND_DESTROYS_MAPPING`
     /// # Example
     /// ```
     /// use nat_emulation::predefines::MISBEHAVING_NAT;
-    /// use nat_emulation::{DestType, Nat};
+    /// use nat_emulation::{port_ranges::PRIVATE, DestType, Nat};
     /// let rng = rand::rngs::mock::StepRng::new(0, 1);
     /// let mut time = 100;
     /// let timeout = 1000 * 60 * 2;
     ///
     /// let nat_ex_addr = 11111;
-    /// let mut nat = Nat::new(MISBEHAVING_NAT, [nat_ex_addr], 90000..=99999, 49152..=u16::MAX, rng, timeout);
+    /// let mut nat = Nat::new(MISBEHAVING_NAT, [nat_ex_addr], 90000..=99999, PRIVATE, rng, usize::MAX, timeout);
     ///
     /// let client_in_addr = nat.assign_internal_address();
-    /// let client_in_port = 17;
+    /// let client_in_port = 25565;
     /// let server_ex_addr = 22222;
     /// let server_ex_port0 = 80;
     /// let server_ex_port1 = 17;
@@ -419,4 +424,19 @@ pub mod predefines {
     /// ```
     pub const MISBEHAVING_NAT: u32 =
         HARD_NAT | INTERNAL_ADDRESS_AND_PORT_HAIRPINNING | OUTBOUND_REFRESH_BEHAVIOR_FALSE | FILTERED_INBOUND_DESTROYS_MAPPING;
+}
+/// The standard set of different port ranges used on the internet.
+pub mod port_ranges {
+    use std::ops::RangeInclusive;
+
+    /// The well-known port range, ports 1 to 1023.
+    pub const WELL_KNOWN: RangeInclusive<u16> = 1..=1023;
+    /// The registered port range, ports 1024 to 49151.
+    pub const REGISTERED: RangeInclusive<u16> = 1024..=49151;
+    /// The private, or dynamic, port range, ports 49152 to 65535.
+    pub const PRIVATE: RangeInclusive<u16> = 49152..=65535;
+    /// The combined registered and private port ranges, ports 1024 to 65535.
+    pub const REGISTERED_AND_PRIVATE: RangeInclusive<u16> = 1024..=65535;
+    /// The valid port numbers from 1 to 65535.
+    pub const ALL: RangeInclusive<u16> = 1..=65535;
 }

@@ -4,6 +4,7 @@ use std::ops::RangeInclusive;
 use rand::RngCore;
 
 use crate::flags::*;
+use crate::nat_flags::port_ranges;
 
 pub enum DestType {
     External {
@@ -58,6 +59,8 @@ pub struct Nat<R: RngCore, const M: usize> {
     rng: R,
     assigned_external_ports: RangeInclusive<u16>,
     assigned_internal_addresses: RangeInclusive<u32>,
+    map_cur_size: usize,
+    map_max_size: usize,
     /// This field defines the set of behaviors this NAT will exhibit.
     /// Some NATs will dynamically change their behavior during runtime in response to arbitrary
     /// triggers. This classified as a Non-deterministic NAT by rfc4787, and it is awful.
@@ -76,13 +79,14 @@ impl<R: RngCore> Nat<R, 1> {
     /// firewall. It can still translate ports however, unless you disable this behavior as well
     /// with the `PORT_PRESERVATION_OVERRIDE` flag.
     #[inline]
-    pub fn no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_timeout: i64) -> Self {
+    pub fn no_address_translation(flags: u32, assigned_address: u32, rng: R, mapping_max_size: usize, mapping_timeout: i64) -> Self {
         Self::new(
             flags,
             [assigned_address],
             assigned_address..=assigned_address,
-            0..=u16::MAX,
+            port_ranges::ALL,
             rng,
+            mapping_max_size,
             mapping_timeout,
         )
     }
@@ -97,6 +101,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         internal_addresses: RangeInclusive<u32>,
         external_dynamic_ports: RangeInclusive<u16>,
         rng: R,
+        mapping_max_size: usize,
         mapping_timeout: i64,
     ) -> Self {
         debug_assert!(
@@ -111,6 +116,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             internal_addresses,
             external_dynamic_ports,
             rng,
+            mapping_max_size,
             mapping_timeout,
         );
         ret.external_addresses_len = external_addresses.len();
@@ -135,8 +141,10 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         internal_addresses: RangeInclusive<u32>,
         external_dynamic_ports: RangeInclusive<u16>,
         rng: R,
+        mapping_max_size: usize,
         mapping_timeout: i64,
     ) -> Self {
+        debug_assert!(mapping_max_size > 0, "The mapping max size must be greateer than 0");
         debug_assert!(
             internal_addresses.start() <= internal_addresses.end(),
             "The internal_addresses range must be nonempty"
@@ -149,6 +157,8 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             external_addresses_len: M,
             external_addresses: external_addresses,
             map: std::array::from_fn(|_| Vec::new()),
+            map_cur_size: 0,
+            map_max_size: usize::MAX,
             mapping_timeout,
             rng,
             assigned_external_ports: external_dynamic_ports,
@@ -268,6 +278,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
                     if routing_table[i].external_port == src_port {
                         // In port preservation override mode we remove everyone else who is
                         // using the chosen src_port.
+                        self.map_cur_size -= 1;
                         routing_table.swap_remove(i);
                     }
                 }
@@ -277,17 +288,22 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         // If we can't do any port preservation we have to randomly generate the port and address
         let mut random_addr;
         let mut random_port;
-        let mut attempt_until_force = 8;
+        let mut attempt_until_force = 32;
         'regen: loop {
             attempt_until_force -= 1;
             random_addr = paired_addr_idx.unwrap_or_else(|| {
                 if M == 1 {
                     0
                 } else {
-                    self.rng.next_u64() as usize % self.external_addresses_len
+                    (self.rng.next_u32() % self.external_addresses_len as u32) as usize
                 }
             });
-            random_port = (self.rng.next_u32() % self.assigned_external_ports.len() as u32) as u16 + self.assigned_external_ports.start();
+            let range = if self.flags & NO_WELL_KNOWN_PRESERVATION == 0 && port_ranges::WELL_KNOWN.contains(&src_port) {
+                &port_ranges::WELL_KNOWN
+            } else {
+                &self.assigned_external_ports
+            };
+            random_port = (self.rng.next_u32() % range.len() as u32) as u16 + range.start();
             if self.flags & NO_PORT_PARITY == 0 {
                 // Force the port to have the same parity as the src_port.
                 random_port = (random_port & !1u16) | (src_port & 1u16);
@@ -299,6 +315,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
                         continue 'regen;
                     }
                     // Remove this mapping so our random port is unique.
+                    self.map_cur_size -= 1;
                     routing_table.swap_remove(i);
                     break;
                 }
@@ -361,6 +378,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             while i < routing_table.len() {
                 let route = &mut routing_table[i];
                 if route.last_used_time < expiry {
+                    self.map_cur_size -= 1;
                     routing_table.swap_remove(i);
                     continue;
                 } else if route.internal_addr == internal_src_addr && route.internal_port == internal_src_port {
@@ -399,6 +417,20 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             }
         };
         let external_addr = self.external_addresses[external_address_idx];
+        while self.map_cur_size >= self.map_max_size {
+            let idx = if M == 1 {
+                0
+            } else {
+                (self.rng.next_u32() % self.external_addresses_len as u32) as usize
+            };
+            let routing_table = &mut self.map[idx];
+            if !routing_table.is_empty() {
+                let idx = (self.rng.next_u32() % routing_table.len() as u32) as usize;
+                self.map_cur_size -= 1;
+                routing_table.swap_remove(idx);
+            }
+        }
+        self.map_cur_size += 1;
         self.map[external_address_idx].push(Entry {
             internal_addr: internal_src_addr,
             internal_port: internal_src_port,
@@ -463,6 +495,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
         while i < routing_table.len() {
             let route = &mut routing_table[i];
             if route.last_used_time < expiry {
+                self.map_cur_size -= 1;
                 routing_table.swap_remove(i);
                 continue;
             } else if route.external_port == external_dest_port {
@@ -486,6 +519,7 @@ impl<R: RngCore, const M: usize> Nat<R, M> {
             while i < routing_table.len() {
                 let route = &routing_table[i];
                 if route.external_port == external_dest_port {
+                    self.map_cur_size -= 1;
                     routing_table.swap_remove(i);
                 } else {
                     i += 1;
